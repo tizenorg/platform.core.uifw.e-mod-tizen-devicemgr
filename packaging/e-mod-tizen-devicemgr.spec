@@ -1,3 +1,5 @@
+%bcond_with x
+
 Name: e-mod-tizen-devicemgr
 Version: 0.0.1
 Release: 1
@@ -19,6 +21,10 @@ BuildRequires: pkgconfig(xi)
 BuildRequires: pkgconfig(xtst)
 BuildRequires: pkgconfig(utilX)
 Requires: libX11
+
+%if !%{with x}
+ExclusiveArch:
+%endif
 
 %description
 This package is a devicemgr for enlightenment.
@@ -47,7 +53,7 @@ cp -a %{_builddir}/%{buildsubdir}/COPYING %{buildroot}/usr/share/license/%{name}
 make install DESTDIR=%{buildroot}
 
 # clear useless textual files
-find  %{buildroot}/usr/lib/enlightenment/modules/%{name} -name *.la | xargs rm
+find  %{buildroot}%{_libdir}/enlightenment/modules/%{name} -name *.la | xargs rm
 
 %files
 %defattr(-,root,root,-)

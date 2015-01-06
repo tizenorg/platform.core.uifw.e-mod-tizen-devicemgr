@@ -574,7 +574,7 @@ _e_devicemgr_hook_border_resize_end(void *data, E_Client *ec)
    e_devicemgr.virtual_touchpad_pointed_window_info[2] = ec->client.w;
    e_devicemgr.virtual_touchpad_pointed_window_info[3] = ec->client.h;
 
-   SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][hook_border_resize_end] application win=0x%x, px=%d, py=%d, pw=%d, ph=%d\n", e_client_util_win_get(ec),
+   SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][hook_border_resize_end] application win=0x%x, px=%d, py=%d, pw=%d, ph=%d\n", (Ecore_X_Window)e_client_util_win_get(ec),
               e_devicemgr.virtual_touchpad_pointed_window_info[0], e_devicemgr.virtual_touchpad_pointed_window_info[1],
               e_devicemgr.virtual_touchpad_pointed_window_info[2], e_devicemgr.virtual_touchpad_pointed_window_info[3]);
 }
@@ -594,7 +594,7 @@ _e_devicemgr_hook_border_move_end(void *data, E_Client *ec)
    e_devicemgr.virtual_touchpad_pointed_window_info[2] = ec->client.w;
    e_devicemgr.virtual_touchpad_pointed_window_info[3] = ec->client.h;
 
-   SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][hook_border_move_end] application win=0x%x, px=%d, py=%d, pw=%d, ph=%d\n", e_client_util_win_get(ec),
+   SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][hook_border_move_end] application win=0x%x, px=%d, py=%d, pw=%d, ph=%d\n", (Ecore_X_Window)e_client_util_win_get(ec),
               e_devicemgr.virtual_touchpad_pointed_window_info[0], e_devicemgr.virtual_touchpad_pointed_window_info[1],
               e_devicemgr.virtual_touchpad_pointed_window_info[2], e_devicemgr.virtual_touchpad_pointed_window_info[3]);
 }
@@ -639,9 +639,9 @@ _e_devicemgr_cb_mouse_in(void *data, int type, void *event)
    e_devicemgr.virtual_touchpad_pointed_window_info[1] = ec->y + t;
    e_devicemgr.virtual_touchpad_pointed_window_info[2] = ec->client.w;
    e_devicemgr.virtual_touchpad_pointed_window_info[3] = ec->client.h;
-   e_devicemgr.virtual_touchpad_pointed_window = e_client_util_win_get(ec);
+   e_devicemgr.virtual_touchpad_pointed_window = (Ecore_X_Window)e_client_util_win_get(ec);
 
-   SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][cb_mouse_in] application win=0x%x, px=%d, py=%d, pw=%d, ph=%d\n", e_client_util_win_get(ec),
+   SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][cb_mouse_in] application win=0x%x, px=%d, py=%d, pw=%d, ph=%d\n", (Ecore_X_Window)e_client_util_win_get(ec),
               e_devicemgr.virtual_touchpad_pointed_window_info[0], e_devicemgr.virtual_touchpad_pointed_window_info[1],
               e_devicemgr.virtual_touchpad_pointed_window_info[2], e_devicemgr.virtual_touchpad_pointed_window_info[3]);
    ecore_x_client_message32_send(e_devicemgr.virtual_touchpad_window, e_devicemgr.atomVirtualTouchpadInt,
