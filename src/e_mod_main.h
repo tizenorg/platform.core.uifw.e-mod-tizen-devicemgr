@@ -2,7 +2,6 @@
 #define __E_MOD_MAIN_H__
 
 #include "e.h"
-#include "e_randr.h"
 
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
