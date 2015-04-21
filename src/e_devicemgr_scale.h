@@ -1,6 +1,8 @@
 #ifndef __E_DEVICEMGR_SCALE_H__
 #define __E_DEVICEMGR_SCALE_H__
 
+#include "config.h"
+
 #include "e.h"
 
 int e_devicemgr_scale_init(void);

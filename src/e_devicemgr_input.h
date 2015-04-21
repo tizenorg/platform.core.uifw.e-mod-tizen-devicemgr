@@ -1,8 +1,11 @@
 #ifndef __E_DEVICEMGR_INPUT_H__
 #define __E_DEVICEMGR_INPUT_H__
 
+#include "config.h"
+
 #include "e.h"
 
+#ifndef HAVE_WAYLAND_ONLY
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 #include <X11/extensions/XInput2.h>
@@ -147,6 +150,7 @@ typedef struct _DeviceMgr_
    //input transform matrix
    float tmatrix[9];
 } DeviceMgr;
+#endif
 
 int e_devicemgr_input_init(void);
 void e_devicemgr_input_fini(void);

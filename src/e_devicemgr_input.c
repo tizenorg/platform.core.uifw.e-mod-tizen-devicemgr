@@ -2,6 +2,8 @@
 #include "e_mod_main.h"
 #include "e_devicemgr_privates.h"
 #include "e_devicemgr_input.h"
+
+#ifndef HAVE_WAYLAND_ONLY
 #include <string.h>
 #include <X11/XKBlib.h>
 
@@ -51,116 +53,6 @@ static Eina_Bool _e_devicemgr_virtual_touchpad_helper_enable(Eina_Bool is_enable
 static void _e_devicemgr_virtual_multitouch_helper_init(int deviceid);
 static void _e_devicemgr_virtual_multitouch_helper_fini(void);
 static void _e_devicemgr_show_device_list(unsigned int val);
-
-int
-e_devicemgr_input_init(void)
-{
-   unsigned int val = 1;
-   int res, ret = 1;
-
-   memset(&e_devicemgr, 0, sizeof(DeviceMgr));
-
-   e_devicemgr.disp = ecore_x_display_get();
-
-   if (!e_devicemgr.disp)
-     {
-        SLOG(LOG_DEBUG, "DEVICEMGR", "[32m[e_devicemgr] Failed to open display..![0m\n");
-        ret = 0;
-        goto out;
-     }
-
-   e_devicemgr.rootWin = ecore_x_window_root_first_get();
-
-   /* init data structure */
-   e_devicemgr.vcp_id = -1;
-   e_devicemgr.vcp_xtest_pointer_id = -1;
-   e_devicemgr.vck_xtest_keyboard_id = -1;
-   e_devicemgr.new_master_pointer_id = -1;
-   e_devicemgr.virtual_touchpad_id = -1;
-   e_devicemgr.virtual_multitouch_done = 1;
-   e_devicemgr.device_list = NULL;
-   e_devicemgr.atomRROutput = ecore_x_atom_get(E_PROP_XRROUTPUT);
-   e_devicemgr.atomDeviceName = ecore_x_atom_get(E_PROP_DEVICE_NAME);
-   e_devicemgr.atomDeviceList = ecore_x_atom_get(E_PROP_DEVICE_LIST);
-   e_devicemgr.atomXMouseExist = ecore_x_atom_get(E_PROP_X_MOUSE_EXIST);
-   e_devicemgr.atomXMouseCursorEnable = ecore_x_atom_get(E_PROP_X_MOUSE_CURSOR_ENABLE);
-   e_devicemgr.atomXExtKeyboardExist = ecore_x_atom_get(E_PROP_X_EXT_KEYBOARD_EXIST);
-   e_devicemgr.atomHWKbdInputStarted = ecore_x_atom_get(E_PROP_HW_KEY_INPUT_STARTED);
-   e_devicemgr.atomAxisLabels = ecore_x_atom_get(E_PROP_X_EVDEV_AXIS_LABELS);
-   e_devicemgr.atomVirtualTouchpadConfineRegion = ecore_x_atom_get(E_PROP_VIRTUAL_TOUCHPAD_CONFINE_REGION);
-   e_devicemgr.atomVirtualTouchpad = ecore_x_atom_get(E_PROP_VIRTUAL_TOUCHPAD);
-   e_devicemgr.atomVirtualTouchpadInt = ecore_x_atom_get(E_PROP_VIRTUAL_TOUCHPAD_INT);
-   e_devicemgr.atomDeviceMgrInputWindow = ecore_x_atom_get(E_PROP_DEVICEMGR_INPUTWIN);
-   e_devicemgr.atomTouchInput = ecore_x_atom_get(E_PROP_TOUCH_INPUT);
-   e_devicemgr.atomFloat = ecore_x_atom_get(XATOM_FLOAT);
-   e_devicemgr.atomInputTransform = ecore_x_atom_get(EVDEVMULTITOUCH_PROP_TRANSFORM);
-
-   ecore_x_window_prop_card32_set(e_devicemgr.rootWin, e_devicemgr.atomTouchInput, &val, 1);
-   memset(&e_devicemgr.virtual_touchpad_area_info, -1, sizeof(e_devicemgr.virtual_touchpad_area_info));
-   memset(&e_devicemgr.virtual_multitouch_id, -1, sizeof(e_devicemgr.virtual_multitouch_id));
-   e_devicemgr.virtual_touchpad_pointed_window = 0;
-   e_devicemgr.zones = NULL;
-
-   e_devicemgr.input_window = ecore_x_window_input_new(e_devicemgr.rootWin, -1, -1, 1, 1);
-
-   if (!e_devicemgr.input_window)
-     {
-        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr] Failed to create input_window !\n");
-     }
-   else
-     {
-        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr] Succeed to create input_window (0x%x)!\n", e_devicemgr.input_window);
-        ecore_x_window_prop_property_set(e_devicemgr.rootWin, e_devicemgr.atomDeviceMgrInputWindow, ECORE_X_ATOM_WINDOW, 32, &e_devicemgr.input_window, 1);
-     }
-
-   res = _e_devicemgr_xinput_init();
-   if (!res)
-     {
-        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr] Failed to initialize XInput Extension !\n");
-        ret =0;
-        goto out;
-     }
-
-   res = _e_devicemgr_xkb_init();
-   if (!res)
-     {
-        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr] Failed to initialize XKB Extension !\n");
-        ret = 0;
-        goto out;
-     }
-
-   _e_devicemgr_init_transform_matrix();
-   _e_devicemgr_init_input();
-   _e_devicemgr_init_output();
-
-   /* add handlers */
-   e_devicemgr.client_message_handler = ecore_event_handler_add (ECORE_X_EVENT_CLIENT_MESSAGE, (Ecore_Event_Handler_Cb)_e_devicemgr_cb_client_message, NULL);
-   e_devicemgr.window_property_handler = ecore_event_handler_add(ECORE_X_EVENT_WINDOW_PROPERTY, (Ecore_Event_Handler_Cb)_e_devicemgr_cb_window_property, NULL);
-   e_devicemgr.event_generic_handler = ecore_event_handler_add(ECORE_X_EVENT_GENERIC, (Ecore_Event_Handler_Cb)_e_devicemgr_cb_event_generic, NULL);
-   e_devicemgr.zone_add_handler = ecore_event_handler_add(E_EVENT_ZONE_ADD, (Ecore_Event_Handler_Cb)_e_devicemgr_cb_zone_add, NULL);
-   e_devicemgr.zone_del_handler = ecore_event_handler_add(E_EVENT_ZONE_DEL, (Ecore_Event_Handler_Cb)_e_devicemgr_cb_zone_del, NULL);
-
-   if (!e_devicemgr.window_property_handler) SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed to add ECORE_X_EVENT_WINDOW_PROPERTY handler\n", __FUNCTION__);
-   if (!e_devicemgr.event_generic_handler) SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed to add ECORE_X_EVENT_GENERIC handler\n", __FUNCTION__);
-   if (!e_devicemgr.zone_add_handler) SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed to add E_EVENT_ZONE_ADD handler\n", __FUNCTION__);
-   if (!e_devicemgr.zone_del_handler) SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed to add E_EVENT_ZONE_DEL handler\n", __FUNCTION__);
-
-out:
-   return ret;
-}
-
-void
-e_devicemgr_input_fini(void)
-{
-   ecore_event_handler_del(e_devicemgr.window_property_handler);
-   ecore_event_handler_del(e_devicemgr.event_generic_handler);
-   ecore_event_handler_del(e_devicemgr.zone_add_handler);
-   ecore_event_handler_del(e_devicemgr.zone_del_handler);
-   e_devicemgr.window_property_handler = NULL;
-   e_devicemgr.event_generic_handler = NULL;
-   e_devicemgr.zone_add_handler = NULL;
-   e_devicemgr.zone_del_handler = NULL;
-}
 
 static int
 _e_devicemgr_cb_client_message (void* data, int type, void* event)
@@ -1603,4 +1495,120 @@ _e_devicemgr_update_input_transform_matrix(Eina_Bool reset)
    if (reset) SLOG(LOG_DEBUG, "DEVICEMGR",  "[e_devicemgr][update_input_transform_matrix] transform matrix was reset to identity_matrix !\n");
    else SLOG(LOG_DEBUG, "DEVICEMGR",  "[e_devicemgr][update_input_transform_matrix] transform matrix was updated !\n");
 }
+#endif
 
+int
+e_devicemgr_input_init(void)
+{
+#ifndef HAVE_WAYLAND_ONLY
+   unsigned int val = 1;
+   int res, ret = 1;
+
+   memset(&e_devicemgr, 0, sizeof(DeviceMgr));
+
+   e_devicemgr.disp = ecore_x_display_get();
+
+   if (!e_devicemgr.disp)
+     {
+        SLOG(LOG_DEBUG, "DEVICEMGR", "[32m[e_devicemgr] Failed to open display..![0m\n");
+        ret = 0;
+        goto out;
+     }
+
+   e_devicemgr.rootWin = ecore_x_window_root_first_get();
+
+   /* init data structure */
+   e_devicemgr.vcp_id = -1;
+   e_devicemgr.vcp_xtest_pointer_id = -1;
+   e_devicemgr.vck_xtest_keyboard_id = -1;
+   e_devicemgr.new_master_pointer_id = -1;
+   e_devicemgr.virtual_touchpad_id = -1;
+   e_devicemgr.virtual_multitouch_done = 1;
+   e_devicemgr.device_list = NULL;
+   e_devicemgr.atomRROutput = ecore_x_atom_get(E_PROP_XRROUTPUT);
+   e_devicemgr.atomDeviceName = ecore_x_atom_get(E_PROP_DEVICE_NAME);
+   e_devicemgr.atomDeviceList = ecore_x_atom_get(E_PROP_DEVICE_LIST);
+   e_devicemgr.atomXMouseExist = ecore_x_atom_get(E_PROP_X_MOUSE_EXIST);
+   e_devicemgr.atomXMouseCursorEnable = ecore_x_atom_get(E_PROP_X_MOUSE_CURSOR_ENABLE);
+   e_devicemgr.atomXExtKeyboardExist = ecore_x_atom_get(E_PROP_X_EXT_KEYBOARD_EXIST);
+   e_devicemgr.atomHWKbdInputStarted = ecore_x_atom_get(E_PROP_HW_KEY_INPUT_STARTED);
+   e_devicemgr.atomAxisLabels = ecore_x_atom_get(E_PROP_X_EVDEV_AXIS_LABELS);
+   e_devicemgr.atomVirtualTouchpadConfineRegion = ecore_x_atom_get(E_PROP_VIRTUAL_TOUCHPAD_CONFINE_REGION);
+   e_devicemgr.atomVirtualTouchpad = ecore_x_atom_get(E_PROP_VIRTUAL_TOUCHPAD);
+   e_devicemgr.atomVirtualTouchpadInt = ecore_x_atom_get(E_PROP_VIRTUAL_TOUCHPAD_INT);
+   e_devicemgr.atomDeviceMgrInputWindow = ecore_x_atom_get(E_PROP_DEVICEMGR_INPUTWIN);
+   e_devicemgr.atomTouchInput = ecore_x_atom_get(E_PROP_TOUCH_INPUT);
+   e_devicemgr.atomFloat = ecore_x_atom_get(XATOM_FLOAT);
+   e_devicemgr.atomInputTransform = ecore_x_atom_get(EVDEVMULTITOUCH_PROP_TRANSFORM);
+
+   ecore_x_window_prop_card32_set(e_devicemgr.rootWin, e_devicemgr.atomTouchInput, &val, 1);
+   memset(&e_devicemgr.virtual_touchpad_area_info, -1, sizeof(e_devicemgr.virtual_touchpad_area_info));
+   memset(&e_devicemgr.virtual_multitouch_id, -1, sizeof(e_devicemgr.virtual_multitouch_id));
+   e_devicemgr.virtual_touchpad_pointed_window = 0;
+   e_devicemgr.zones = NULL;
+
+   e_devicemgr.input_window = ecore_x_window_input_new(e_devicemgr.rootWin, -1, -1, 1, 1);
+
+   if (!e_devicemgr.input_window)
+     {
+        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr] Failed to create input_window !\n");
+     }
+   else
+     {
+        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr] Succeed to create input_window (0x%x)!\n", e_devicemgr.input_window);
+        ecore_x_window_prop_property_set(e_devicemgr.rootWin, e_devicemgr.atomDeviceMgrInputWindow, ECORE_X_ATOM_WINDOW, 32, &e_devicemgr.input_window, 1);
+     }
+
+   res = _e_devicemgr_xinput_init();
+   if (!res)
+     {
+        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr] Failed to initialize XInput Extension !\n");
+        ret =0;
+        goto out;
+     }
+
+   res = _e_devicemgr_xkb_init();
+   if (!res)
+     {
+        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr] Failed to initialize XKB Extension !\n");
+        ret = 0;
+        goto out;
+     }
+
+   _e_devicemgr_init_transform_matrix();
+   _e_devicemgr_init_input();
+   _e_devicemgr_init_output();
+
+   /* add handlers */
+   e_devicemgr.client_message_handler = ecore_event_handler_add (ECORE_X_EVENT_CLIENT_MESSAGE, (Ecore_Event_Handler_Cb)_e_devicemgr_cb_client_message, NULL);
+   e_devicemgr.window_property_handler = ecore_event_handler_add(ECORE_X_EVENT_WINDOW_PROPERTY, (Ecore_Event_Handler_Cb)_e_devicemgr_cb_window_property, NULL);
+   e_devicemgr.event_generic_handler = ecore_event_handler_add(ECORE_X_EVENT_GENERIC, (Ecore_Event_Handler_Cb)_e_devicemgr_cb_event_generic, NULL);
+   e_devicemgr.zone_add_handler = ecore_event_handler_add(E_EVENT_ZONE_ADD, (Ecore_Event_Handler_Cb)_e_devicemgr_cb_zone_add, NULL);
+   e_devicemgr.zone_del_handler = ecore_event_handler_add(E_EVENT_ZONE_DEL, (Ecore_Event_Handler_Cb)_e_devicemgr_cb_zone_del, NULL);
+
+   if (!e_devicemgr.window_property_handler) SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed to add ECORE_X_EVENT_WINDOW_PROPERTY handler\n", __FUNCTION__);
+   if (!e_devicemgr.event_generic_handler) SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed to add ECORE_X_EVENT_GENERIC handler\n", __FUNCTION__);
+   if (!e_devicemgr.zone_add_handler) SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed to add E_EVENT_ZONE_ADD handler\n", __FUNCTION__);
+   if (!e_devicemgr.zone_del_handler) SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed to add E_EVENT_ZONE_DEL handler\n", __FUNCTION__);
+
+out:
+   return ret;
+#else
+   return 1;
+#endif
+}
+
+void
+e_devicemgr_input_fini(void)
+{
+#ifndef HAVE_WAYLAND_ONLY
+   ecore_event_handler_del(e_devicemgr.window_property_handler);
+   ecore_event_handler_del(e_devicemgr.event_generic_handler);
+   ecore_event_handler_del(e_devicemgr.zone_add_handler);
+   ecore_event_handler_del(e_devicemgr.zone_del_handler);
+   e_devicemgr.window_property_handler = NULL;
+   e_devicemgr.event_generic_handler = NULL;
+   e_devicemgr.zone_add_handler = NULL;
+   e_devicemgr.zone_del_handler = NULL;
+#endif
+}
