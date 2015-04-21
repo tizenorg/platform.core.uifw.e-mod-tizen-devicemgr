@@ -5,7 +5,11 @@ LDFLAGS +=
 
 pkgdir                 = $(libdir)/enlightenment/modules/$(MODULE)/$(MODULE_ARCH)
 pkg_LTLIBRARIES        = module.la
-module_la_SOURCES      = e_mod_main.c 
+module_la_SOURCES      = \
+	e_mod_main.c \
+	e_devicemgr_output.c \
+	e_devicemgr_input.c \
+	e_devicemgr_scale.c 
 
 module_la_LIBADD       =
 module_la_CFLAGS       = @ENLIGHTENMENT_CFLAGS@
