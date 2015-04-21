@@ -1,4 +1,5 @@
 %bcond_with x
+%bcond_with wayland
 
 Name: e-mod-tizen-devicemgr
 Version: 0.0.1
@@ -11,6 +12,7 @@ License: BSD-2-Clause
 BuildRequires: pkgconfig(enlightenment)
 BuildRequires: pkgconfig(elementary)
 BuildRequires: pkgconfig(dlog)
+%if %{with x}
 BuildRequires: pkgconfig(x11)
 BuildRequires: pkgconfig(xextproto)
 BuildRequires: pkgconfig(xfixes)
@@ -21,9 +23,10 @@ BuildRequires: pkgconfig(xi)
 BuildRequires: pkgconfig(xtst)
 BuildRequires: pkgconfig(utilX)
 Requires: libX11
+%endif
 
-%if !%{with x}
-ExclusiveArch:
+%if %{with wayland}
+BuildRequires: pkgconfig(wayland-server)
 %endif
 
 %description
@@ -38,8 +41,12 @@ export GC_SECTIONS_FLAGS="-fdata-sections -ffunction-sections -Wl,--gc-sections"
 export CFLAGS+=" -Wall -Werror -g -fPIC -rdynamic ${GC_SECTIONS_FLAGS}"
 export LDFLAGS+=" -Wl,--hash-style=both -Wl,--as-needed -Wl,--rpath=/usr/lib"
 
-%autogen
-%configure --prefix=/usr
+%if %{with wayland}
+%reconfigure --enable-wayland-only
+%else
+%reconfigure 
+%endif
+
 make
 
 %install
