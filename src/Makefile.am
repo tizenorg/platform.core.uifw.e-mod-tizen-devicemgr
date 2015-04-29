@@ -13,7 +13,9 @@ module_la_SOURCES      = \
 
 if HAVE_WAYLAND_ONLY
 module_la_SOURCES      += \
-	e_devicemgr_dpms.c
+	e_devicemgr_dpms.c \
+	e_devicemgr_screenshooter.c \
+	e_tizen_screenshooter_server_protocol.c
 endif
 
 module_la_LIBADD       =

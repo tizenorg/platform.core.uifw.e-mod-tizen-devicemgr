@@ -6,6 +6,7 @@
 #include "e_devicemgr_scale.h"
 #ifdef HAVE_WAYLAND_ONLY
 #include "e_devicemgr_dpms.h"
+#include "e_devicemgr_screenshooter.h"
 #endif
 
 /* this is needed to advertise a label for the module IN the code (not just
@@ -40,6 +41,14 @@ e_modapi_init(E_Module *m)
      }
 
 #ifdef HAVE_WAYLAND_ONLY
+   const char *engine_name = ecore_evas_engine_name_get(e_comp->ee);
+   if (!strncmp(engine_name, "drm", 3) || !strncmp(engine_name, "gl_drm", 6) || !strncmp(engine_name, "fb", 2))
+     if (!e_devicemgr_screenshooter_init())
+       {
+          SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_screenshooter_init()..!\n", __FUNCTION__);
+          return NULL;
+       }
+
    if (!e_devicemgr_dpms_init())
      {
         SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_dpms_init()..!\n", __FUNCTION__);
@@ -55,6 +64,7 @@ e_modapi_shutdown(E_Module *m EINA_UNUSED)
 {
 #ifdef HAVE_WAYLAND_ONLY
    e_devicemgr_dpms_fini();
+   e_devicemgr_screenshooter_fini();
 #endif
    e_devicemgr_scale_fini();
    e_devicemgr_input_fini();
