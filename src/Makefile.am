@@ -11,6 +11,11 @@ module_la_SOURCES      = \
 	e_devicemgr_input.c \
 	e_devicemgr_scale.c 
 
+if HAVE_WAYLAND_ONLY
+module_la_SOURCES      += \
+	e_devicemgr_dpms.c
+endif
+
 module_la_LIBADD       =
 module_la_CFLAGS       = @ENLIGHTENMENT_CFLAGS@
 module_la_LDFLAGS      = -module -avoid-version @ENLIGHTENMENT_LIBS@

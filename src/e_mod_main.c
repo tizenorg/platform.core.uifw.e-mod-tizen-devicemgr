@@ -4,6 +4,9 @@
 #include "e_devicemgr_input.h"
 #include "e_devicemgr_output.h"
 #include "e_devicemgr_scale.h"
+#ifdef HAVE_WAYLAND_ONLY
+#include "e_devicemgr_dpms.h"
+#endif
 
 /* this is needed to advertise a label for the module IN the code (not just
  * the .desktop file) but more specifically the api version it was compiled
@@ -36,12 +39,23 @@ e_modapi_init(E_Module *m)
         return NULL;
      }
 
+#ifdef HAVE_WAYLAND_ONLY
+   if (!e_devicemgr_dpms_init())
+     {
+        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_dpms_init()..!\n", __FUNCTION__);
+        return NULL;
+     }
+#endif
+
    return m;
 }
 
 EAPI int
 e_modapi_shutdown(E_Module *m EINA_UNUSED)
 {
+#ifdef HAVE_WAYLAND_ONLY
+   e_devicemgr_dpms_fini();
+#endif
    e_devicemgr_scale_fini();
    e_devicemgr_input_fini();
    e_devicemgr_output_fini();

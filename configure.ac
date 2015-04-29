@@ -70,6 +70,7 @@ AC_MSG_CHECKING([whether wayland-only version is enabled])
 if test "x${have_wayland_only}" = "xyes"; then
   AC_DEFINE_UNQUOTED([HAVE_WAYLAND_ONLY],[1],[enable wayland-only version of devicemgr])
 fi
+AM_CONDITIONAL(HAVE_WAYLAND_ONLY, [test "x${have_wayland_only}" = xyes])
 
 if test "x${have_wayland_only}" = "xyes"; then
 	PKG_CHECK_MODULES(ENLIGHTENMENT, [enlightenment, dlog, wayland-server])
