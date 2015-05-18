@@ -12,6 +12,7 @@ License: BSD-2-Clause
 BuildRequires: pkgconfig(enlightenment)
 BuildRequires: pkgconfig(elementary)
 BuildRequires: pkgconfig(dlog)
+BuildRequires: pkgconfig(cairo)
 %if %{with x}
 BuildRequires: pkgconfig(x11)
 BuildRequires: pkgconfig(xextproto)
@@ -26,6 +27,9 @@ Requires: libX11
 %endif
 
 %if %{with wayland}
+BuildRequires: pkgconfig(libtbm)
+BuildRequires: pkgconfig(libdrm)
+BuildRequires: pkgconfig(libpng)
 BuildRequires: pkgconfig(wayland-server)
 %endif
 

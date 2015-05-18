@@ -1,13 +1,18 @@
 #include "e.h"
+#include "eina_log.h"
 #include "e_mod_main.h"
-#include "e_devicemgr_privates.h"
 #include "e_devicemgr_input.h"
 #include "e_devicemgr_output.h"
 #include "e_devicemgr_scale.h"
 #ifdef HAVE_WAYLAND_ONLY
 #include "e_devicemgr_dpms.h"
 #include "e_devicemgr_screenshooter.h"
+#include "e_devicemgr_video.h"
+#include "e_devicemgr_drm.h"
 #endif
+#include "e_devicemgr_privates.h"
+
+int _log_dom = -1;
 
 /* this is needed to advertise a label for the module IN the code (not just
  * the .desktop file) but more specifically the api version it was compiled
@@ -22,6 +27,19 @@ EAPI E_Module_Api e_modapi =
 EAPI void *
 e_modapi_init(E_Module *m)
 {
+   if (!eina_init())
+     {
+        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ eina_init()..!\n", __FUNCTION__);
+        return NULL;
+     }
+
+   _log_dom = eina_log_domain_register("e-devicemgr", EINA_COLOR_BLUE);
+   if (_log_dom < 0)
+     {
+        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ eina_log_domain_register()..!\n", __FUNCTION__);
+        return NULL;
+     }
+
    if (!e_devicemgr_output_init())
      {
         SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_output_init()..!\n", __FUNCTION__);
@@ -49,9 +67,21 @@ e_modapi_init(E_Module *m)
           return NULL;
        }
 
+   if (!e_devicemgr_drm_init())
+     {
+        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_drm_init()..!\n", __FUNCTION__);
+        return NULL;
+     }
+
    if (!e_devicemgr_dpms_init())
      {
         SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_dpms_init()..!\n", __FUNCTION__);
+        return NULL;
+     }
+
+   if (!e_devicemgr_video_init())
+     {
+        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_video_init()..!\n", __FUNCTION__);
         return NULL;
      }
 #endif
@@ -65,10 +95,15 @@ e_modapi_shutdown(E_Module *m EINA_UNUSED)
 #ifdef HAVE_WAYLAND_ONLY
    e_devicemgr_dpms_fini();
    e_devicemgr_screenshooter_fini();
+   e_devicemgr_video_fini();
+   e_devicemgr_drm_fini();
 #endif
    e_devicemgr_scale_fini();
    e_devicemgr_input_fini();
    e_devicemgr_output_fini();
+
+   eina_log_domain_unregister(_log_dom);
+   eina_shutdown();
 
    return 1;
 }

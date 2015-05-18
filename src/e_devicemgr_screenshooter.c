@@ -2,8 +2,10 @@
 #include "e.h"
 #include <wayland-server.h>
 #include <Ecore_Wayland.h>
+#include <Ecore_Drm.h>
 #include "e_tizen_screenshooter_server_protocol.h"
 #include "e_devicemgr_screenshooter.h"
+#include "e_devicemgr_buffer.h"
 
 #define SW_DUMP_FPS     30
 #define SW_DUMP_TIMEOUT ((double)1/SW_DUMP_FPS)
@@ -387,6 +389,51 @@ _e_tizen_screenshooter_cb_bind(struct wl_client *client, void *data, uint32_t ve
    wl_resource_set_implementation(res, &_e_tizen_screenshooter_interface, cdata, NULL);
 }
 
+static uint
+_e_tizen_screenshooter_buffer_get_capbilities(void *user_data)
+{
+   return TIZEN_BUFFER_POOL_CAPABILITY_SCREENMIRROR;
+}
+
+static uint*
+_e_tizen_screenshooter_buffer_get_formats(void *user_data, int *format_cnt)
+{
+   uint *fmts;
+
+   EINA_SAFETY_ON_NULL_RETURN_VAL(format_cnt, NULL);
+
+   *format_cnt = 0;
+
+   fmts = calloc(3, sizeof(uint));
+   EINA_SAFETY_ON_NULL_RETURN_VAL(fmts, NULL);
+
+   fmts[0] = TIZEN_BUFFER_POOL_FORMAT_ARGB8888;
+   fmts[1] = TIZEN_BUFFER_POOL_FORMAT_XRGB8888;
+   fmts[2] = TIZEN_BUFFER_POOL_FORMAT_NV12;
+
+   *format_cnt = 3;
+
+   return fmts;
+}
+
+static void
+_e_tizen_screenshooter_buffer_reference_buffer(void *user_data, E_Drm_Buffer *drm_buffer)
+{
+}
+
+static void
+_e_tizen_screenshooter_buffer_release_buffer(void *user_data, E_Drm_Buffer *drm_buffer)
+{
+}
+
+static E_Drm_Buffer_Callbacks _e_tizen_screenshooter_buffer_callbacks =
+{
+   _e_tizen_screenshooter_buffer_get_capbilities,
+   _e_tizen_screenshooter_buffer_get_formats,
+   _e_tizen_screenshooter_buffer_reference_buffer,
+   _e_tizen_screenshooter_buffer_release_buffer
+};
+
 int
 e_devicemgr_screenshooter_init(void)
 {
@@ -401,6 +448,12 @@ e_devicemgr_screenshooter_init(void)
                          cdata, _e_tizen_screenshooter_cb_bind))
      {
         ERR("Could not add tizen_screenshooter to wayland globals: %m");
+        return 0;
+     }
+
+   if (!e_drm_buffer_pool_init(cdata->wl.disp, &_e_tizen_screenshooter_buffer_callbacks, NULL))
+     {
+        ERR("Could not init e_drm_buffer_pool_init");
         return 0;
      }
 
