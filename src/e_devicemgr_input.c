@@ -1501,43 +1501,17 @@ static Eina_List *handlers = NULL;
 static Eina_Bool remapped = EINA_FALSE;
 
 static void
-_input_dev_key_remap(const char *sysname)
+_input_dev_key_remap(void)
 {
    char path[256];
    int fd, ret, codes[2];
-
-   EINA_SAFETY_ON_NULL_RETURN(sysname);
-
-   sprintf(path, "/dev/input/%s", sysname);
-
-   fd = open(path, O_RDONLY);
-   EINA_SAFETY_ON_FALSE_RETURN(fd >= 0);
-
-   codes[0] = 0x1c1f; // scancode
-   codes[1] = KEY_BACK; // keycode
-
-   ret = ioctl(fd, EVIOCSKEYCODE, codes);
-   if (ret == 0)
-     {
-        DBG("[DEVMGR] Changed keymap: %s", path);
-        remapped = EINA_TRUE;
-     }
-   else
-     {
-        DBG("[DEVMGR] Failed to change keymap: %s", path);
-     }
-
-   close(fd);
-}
-
-static void
-_input_dev_key_remap_init(void)
-{
    Eina_List *l, *l2, *l3;
    Ecore_Drm_Device *dev;
    Ecore_Drm_Seat *seat;
    Ecore_Drm_Evdev *evdev;
    const char *name, *sysname;
+
+   if (remapped) return;
 
    EINA_LIST_FOREACH(ecore_drm_devices_get(), l, dev)
      {
@@ -1547,14 +1521,45 @@ _input_dev_key_remap_init(void)
                {
                   name = ecore_drm_evdev_name_get(evdev);
                   sysname = ecore_drm_evdev_sysname_get(evdev);
-                  if ((name) && (!strcmp(name, "au0828 IR (Hauppauge HVR950Q)")))
+                  if ((sysname) &&
+                      (name) &&
+                      (!strcmp(name, "au0828 IR (Hauppauge HVR950Q)")))
                     {
-                       _input_dev_key_remap(sysname);
+                       sprintf(path, "/dev/input/%s", sysname);
+
+                       fd = open(path, O_RDONLY);
+                       EINA_SAFETY_ON_FALSE_RETURN(fd >= 0);
+
+                       codes[0] = 0x1c1f; // scancode
+                       codes[1] = KEY_BACK; // keycode
+
+                       ret = ioctl(fd, EVIOCSKEYCODE, codes);
+                       if (ret == 0)
+                         {
+                            DBG("[DEVMGR] Changed keymap: %s", path);
+
+                            /* re-initialize libinput to be applied remapped keycode */
+                            ecore_drm_inputs_destroy(dev);
+                            ecore_drm_inputs_create(dev);
+
+                            remapped = EINA_TRUE;
+                         }
+                       else
+                         {
+                            DBG("[DEVMGR] Failed to change keymap: %s", path);
+                         }
+                       close(fd);
                        return;
                     }
                }
           }
      }
+}
+
+static void
+_input_dev_key_remap_init(void)
+{
+   _input_dev_key_remap();
 }
 
 static Eina_Bool
@@ -1569,7 +1574,7 @@ _cb_input_dev_add(void *data EINA_UNUSED, int type EINA_UNUSED, void *event)
    if ((ev->name) &&
        (!strcmp(ev->name, "au0828 IR (Hauppauge HVR950Q)")))
      {
-        _input_dev_key_remap(ev->sysname);
+        _input_dev_key_remap();
      }
 
    return ECORE_CALLBACK_PASS_ON;
@@ -1579,6 +1584,8 @@ static Eina_Bool
 _cb_input_dev_del(void *data EINA_UNUSED, int type EINA_UNUSED, void *event)
 {
    Ecore_Drm_Event_Input_Device_Del *ev;
+
+   if (!remapped) return ECORE_CALLBACK_PASS_ON;
 
    ev = event;
 
@@ -1591,8 +1598,6 @@ _cb_input_dev_del(void *data EINA_UNUSED, int type EINA_UNUSED, void *event)
 
    return ECORE_CALLBACK_PASS_ON;
 }
-
-
 #endif
 
 int
