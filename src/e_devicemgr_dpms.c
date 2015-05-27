@@ -8,6 +8,8 @@
 #define PATH "/org/enlightenment/wm"
 #define INTERFACE "org.enlightenment.wm.dpms"
 
+static unsigned int dpms_value;
+
 static Eldbus_Connection *conn;
 static Eldbus_Service_Interface *iface;
 
@@ -41,6 +43,7 @@ _e_devicemgr_dpms_dpms_set_cb(const Eldbus_Service_Interface *iface, const Eldbu
 
                DBG("[devicemgr] set DPMS");
 
+               dpms_value = uint32;
                ecore_drm_output_dpms_set(output, uint32);
                ecore_evas_manual_render_set(e_comp->ee,
                                             (uint32 > 0) ? EINA_TRUE : EINA_FALSE);
@@ -54,8 +57,21 @@ _e_devicemgr_dpms_dpms_set_cb(const Eldbus_Service_Interface *iface, const Eldbu
    return reply;
 }
 
+static Eldbus_Message *
+_e_devicemgr_dpms_get_cb(const Eldbus_Service_Interface *iface, const Eldbus_Message *msg)
+{
+   Eldbus_Message *reply = eldbus_message_method_return_new(msg);
+
+   DBG("[devicemgr] got DPMS 'get' request");
+
+   eldbus_message_arguments_append(reply, "i", dpms_value);
+
+   return reply;
+}
+
 static const Eldbus_Method methods[] = {
-   {"set", ELDBUS_ARGS({"u", "uint32"}), ELDBUS_ARGS({"i", "int32"}), _e_devicemgr_dpms_dpms_set_cb},
+   {"set", ELDBUS_ARGS({"u", "uint32"}), ELDBUS_ARGS({"i", "int32"}), _e_devicemgr_dpms_dpms_set_cb, 0},
+   {"get", NULL, ELDBUS_ARGS({"i", "int32"}), _e_devicemgr_dpms_get_cb, 0},
    {}
 };
 
