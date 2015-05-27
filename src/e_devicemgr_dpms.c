@@ -14,7 +14,7 @@ static Eldbus_Connection *conn;
 static Eldbus_Service_Interface *iface;
 
 static Eldbus_Message *
-_e_devicemgr_dpms_dpms_set_cb(const Eldbus_Service_Interface *iface, const Eldbus_Message *msg)
+_e_devicemgr_dpms_set_cb(const Eldbus_Service_Interface *iface, const Eldbus_Message *msg)
 {
    Eldbus_Message *reply = eldbus_message_method_return_new(msg);
    unsigned int uint32 = -1;
@@ -70,7 +70,7 @@ _e_devicemgr_dpms_get_cb(const Eldbus_Service_Interface *iface, const Eldbus_Mes
 }
 
 static const Eldbus_Method methods[] = {
-   {"set", ELDBUS_ARGS({"u", "uint32"}), ELDBUS_ARGS({"i", "int32"}), _e_devicemgr_dpms_dpms_set_cb, 0},
+   {"set", ELDBUS_ARGS({"u", "uint32"}), ELDBUS_ARGS({"i", "int32"}), _e_devicemgr_dpms_set_cb, 0},
    {"get", NULL, ELDBUS_ARGS({"i", "int32"}), _e_devicemgr_dpms_get_cb, 0},
    {}
 };
