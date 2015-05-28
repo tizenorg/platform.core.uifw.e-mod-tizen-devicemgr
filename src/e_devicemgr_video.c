@@ -240,7 +240,7 @@ _e_video_plane_info_get(E_Video *video)
    drmModeResPtr mode_res = NULL;
    drmModePlaneResPtr plane_res = NULL;
    uint crtc_id = 0, plane_id = 0, zpos = -1;
-   uint connector_type;
+   uint connector_type = 0;
    int i, j;
 
    /* get crtc_id */

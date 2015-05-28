@@ -310,7 +310,7 @@ _e_devmgr_cvt_queue(E_Devmgr_Cvt *cvt, E_Devmgr_CvtBuf *cbuf)
    buf.buf_id = cbuf->index = index;
    buf.user_data = (__u64)(uintptr_t)cvt;
 
-   for (i = 0; i < 4; i++)
+   for (i = 0; i < EXYNOS_DRM_PLANAR_MAX; i++)
      buf.handle[i] = (__u32)cbuf->handles[i];
 
    if (!e_devicemgr_drm_ipp_queue(&buf))
@@ -362,7 +362,7 @@ _e_devmgr_cvt_dequeue(E_Devmgr_Cvt *cvt, E_Devmgr_CvtBuf *cbuf)
    buf.buf_id = cbuf->index;
    buf.user_data = (__u64)(uintptr_t)cvt;
 
-   for (i = 0; i < 4; i++)
+   for (i = 0; i < EXYNOS_DRM_PLANAR_MAX; i++)
      buf.handle[i] = (__u32)cbuf->handles[i];
 
    if (!e_devicemgr_drm_ipp_queue(&buf))
