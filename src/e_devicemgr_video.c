@@ -415,7 +415,7 @@ _e_video_geometry_info_get(E_Video *video)
         video->ow = new_dst_w;
      }
 
-#if 0
+#if 0 //TODO
         if (!e_devmgr_cvt_ensure_size(&src, &dst))
             goto failed;
 #endif
@@ -571,13 +571,13 @@ _e_video_cvt_callback(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst, v
 
    _e_video_buffer_show(video, dst);
 
-#if 1
+#if 0
    char file[128];
    static int i;
    sprintf(file, "dump/in_%03d", i);
-   e_devmgr_buffer_dump(src, file, 1);
+   e_devmgr_buffer_dump(src, file, 0);
    sprintf(file, "dump/out_%03d", i++);
-   e_devmgr_buffer_dump(dst, file, 1);
+   e_devmgr_buffer_dump(dst, file, 0);
 #endif
 }
 
@@ -746,21 +746,13 @@ _e_video_render(E_Video *video)
         EINA_SAFETY_ON_NULL_RETURN(input_buffer);
 
         _e_video_buffer_show(video, input_buffer);
-#if 1
+#if 0
          char file[128];
          static int i;
          sprintf(file, "dump/noncvt_%03d", i++);
          e_devmgr_buffer_dump(input_buffer, file, 1);
 #endif
      }
-#if 0
-   tbm_bo_handle h = tbm_bo_map(tizen_buffer->bo[0], TBM_DEVICE_CPU, TBM_OPTION_READ);
-   char file[128];
-   static int i = 0;
-   sprintf(file, "/tmp/zerocopy_%03d.raw", i++);
-   secUtilDumpRaw(file, h.ptr, tbm_bo_size(tizen_buffer->bo[0]));
-   tbm_bo_unmap(tizen_buffer->bo[0]);
-#endif
 }
 
 static Eina_Bool

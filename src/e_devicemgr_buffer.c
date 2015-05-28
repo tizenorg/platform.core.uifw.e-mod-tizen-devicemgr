@@ -340,7 +340,7 @@ _e_devmgr_buffer_alloc_fb(int width, int height, Eina_Bool secure, const char *f
    mbuf = calloc(1, sizeof(E_Devmgr_Buf));
    EINA_SAFETY_ON_FALSE_GOTO(mbuf != NULL, alloc_fail);
 
-   mbuf->drmfmt = TIZEN_BUFFER_POOL_FORMAT_XRGB8888;
+   mbuf->drmfmt = TIZEN_BUFFER_POOL_FORMAT_ARGB8888;
    mbuf->width = width;
    mbuf->height = height;
    mbuf->pitches[0] = (width << 2);
@@ -554,13 +554,11 @@ _dump_raw(const char * file, void *data, int size)
 {
    unsigned int * blocks;
    FILE * fp = fopen(file, "w+");
-   if (fp == NULL) return;
-   else
-     {
-        blocks = (unsigned int*)data;
-        fwrite(blocks, 1, size, fp);
-        fclose(fp);
-     }
+   EINA_SAFETY_ON_NULL_RETURN(fp);
+
+   blocks = (unsigned int*)data;
+   fwrite(blocks, 1, size, fp);
+   fclose(fp);
 }
 
 static void
