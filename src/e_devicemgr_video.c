@@ -49,6 +49,22 @@ struct _E_Video
    E_Video_Fb *current_fb;
 };
 
+static uint format_table[] =
+{
+   TIZEN_BUFFER_POOL_FORMAT_ARGB8888,
+   TIZEN_BUFFER_POOL_FORMAT_XRGB8888,
+   TIZEN_BUFFER_POOL_FORMAT_YUYV,
+   TIZEN_BUFFER_POOL_FORMAT_UYVY,
+   TIZEN_BUFFER_POOL_FORMAT_NV12,
+   TIZEN_BUFFER_POOL_FORMAT_NV21,
+   TIZEN_BUFFER_POOL_FORMAT_YUV420,
+   TIZEN_BUFFER_POOL_FORMAT_YVU420,
+   TIZEN_BUFFER_POOL_FORMAT_SN12,
+   TIZEN_BUFFER_POOL_FORMAT_ST12
+};
+
+#define NUM_FORMAT        (sizeof(format_table) / sizeof(format_table[0]))
+
 static Eina_List *video_list;
 
 static void _e_video_destroy(E_Video *video);
@@ -824,20 +840,12 @@ _e_video_buffer_pool_cb_get_formats(void *user_data, int *format_cnt)
 
    *format_cnt = 0;
 
-   fmts = calloc(9, sizeof(uint));
+   fmts = malloc(NUM_FORMAT * sizeof(uint));
    EINA_SAFETY_ON_NULL_RETURN_VAL(fmts, NULL);
 
-   fmts[0] = TIZEN_BUFFER_POOL_FORMAT_ARGB8888;
-   fmts[1] = TIZEN_BUFFER_POOL_FORMAT_XRGB8888;
-   fmts[2] = TIZEN_BUFFER_POOL_FORMAT_YUYV;
-   fmts[3] = TIZEN_BUFFER_POOL_FORMAT_UYVY;
-   fmts[4] = TIZEN_BUFFER_POOL_FORMAT_NV12;
-   fmts[5] = TIZEN_BUFFER_POOL_FORMAT_NV21;
-   fmts[6] = TIZEN_BUFFER_POOL_FORMAT_YUV420;
-   fmts[7] = TIZEN_BUFFER_POOL_FORMAT_YVU420;
-   fmts[8] = TIZEN_BUFFER_POOL_FORMAT_ST12;
+   memcpy(fmts, format_table, NUM_FORMAT * sizeof(uint));
 
-   *format_cnt = 9;
+   *format_cnt = NUM_FORMAT;
 
    return fmts;
 }
