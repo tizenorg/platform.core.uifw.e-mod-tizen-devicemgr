@@ -238,6 +238,8 @@ e_devicemgr_drm_init(void)
                                _e_devicemgr_drm_cb_event, NULL, NULL, NULL);
    EINA_SAFETY_ON_NULL_RETURN_VAL(drm_hdlr, 0);
 
+   e_config->use_hw_underlay = EINA_TRUE;
+
    return 1;
 }
 
