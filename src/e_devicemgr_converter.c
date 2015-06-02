@@ -148,23 +148,6 @@ fill_config(E_Devmgr_CvtType type, E_Devmgr_Cvt_Prop *prop, struct drm_exynos_ip
    config->pos.h = (__u32)prop->crop.h;
 }
 
-#if 0
-static void
-fill_property(E_Devmgr_Cvt *cvt, E_Devmgr_CvtType type, E_Devmgr_Buf *mbuf, E_Devmgr_Cvt_Prop *prop)
-{
-   prop->drmfmt = mbuf->drmfmt;
-   prop->width = mbuf->width;
-   prop->height = mbuf->height;
-   prop->crop = mbuf->crop;
-
-   prop->degree = cvt->props[type].degree;
-   prop->vflip = cvt->props[type].vflip;
-   prop->hflip = cvt->props[type].hflip;
-   prop->secure = cvt->props[type].secure;
-   prop->csc_range = cvt->props[type].csc_range;
-}
-#endif
-
 static Eina_Bool
 set_mbuf_converting(E_Devmgr_Buf *mbuf, E_Devmgr_Cvt *cvt, Eina_Bool converting)
 {
@@ -321,7 +304,7 @@ _e_devmgr_cvt_queue(E_Devmgr_Cvt *cvt, E_Devmgr_CvtBuf *cbuf)
 
    set_mbuf_converting(cbuf->mbuf, cvt, EINA_TRUE);
 
-   if (cbuf->mbuf->type == TYPE_TB)
+   if (cbuf->mbuf->type == TYPE_TB && cbuf->mbuf->b.tizen_buffer->buffer)
      {
         E_Comp_Wl_Buffer *buffer = cbuf->mbuf->b.tizen_buffer->buffer;
         e_comp_wl_buffer_reference(&cbuf->buffer_ref, buffer);
@@ -723,45 +706,6 @@ e_devmgr_cvt_convert(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst)
    EINA_SAFETY_ON_FALSE_RETURN_VAL(MBUF_IS_VALID(src), EINA_FALSE);
    EINA_SAFETY_ON_FALSE_RETURN_VAL(MBUF_IS_VALID(dst), EINA_FALSE);
 
-#if 0
-    E_Devmgr_Cvt_Prop src_prop, dst_prop;
-    fill_property(cvt, CVT_TYPE_SRC, src, &src_prop);
-    fill_property(cvt, CVT_TYPE_DST, dst, &dst_prop);
-
-    if (memcmp(&cvt->props[CVT_TYPE_SRC], &src_prop, sizeof(E_Devmgr_Cvt_Prop)) ||
-        memcmp(&cvt->props[CVT_TYPE_DST], &dst_prop, sizeof(E_Devmgr_Cvt_Prop)))
-    {
-        DBG("cvt(%p) prop changed!", cvt);
-        DBG("cvt(%p) src_old('%c%c%c%c', %dx%d, %d,%d %dx%d, %d, %d&%d, %d, %d)",
-                    cvt, FOURCC_STR(cvt->props[CVT_TYPE_SRC].drmfmt),
-                    cvt->props[CVT_TYPE_SRC].width, cvt->props[CVT_TYPE_SRC].height,
-                    cvt->props[CVT_TYPE_SRC].crop.x, cvt->props[CVT_TYPE_SRC].crop.y,
-                    cvt->props[CVT_TYPE_SRC].crop.w, cvt->props[CVT_TYPE_SRC].crop.h,
-                    cvt->props[CVT_TYPE_SRC].degree,
-                    cvt->props[CVT_TYPE_SRC].hflip, cvt->props[CVT_TYPE_SRC].vflip,
-                    cvt->props[CVT_TYPE_SRC].secure, cvt->props[CVT_TYPE_SRC].csc_range);
-        DBG("cvt(%p) src_new('%c%c%c%c', %dx%d, %d,%d %dx%d, %d, %d&%d, %d, %d)",
-                    cvt, FOURCC_STR(src_prop.drmfmt), src_prop.width, src_prop.height,
-                    src_prop.crop.x, src_prop.crop.y, src_prop.crop.w, src_prop.crop.h,
-                    src_prop.degree, src_prop.hflip, src_prop.vflip,
-                    src_prop.secure, src_prop.csc_range);
-        DBG("cvt(%p) dst_old('%c%c%c%c', %dx%d, %d,%d %dx%d, %d, %d&%d, %d, %d)",
-                    cvt, FOURCC_STR(cvt->props[CVT_TYPE_DST].drmfmt),
-                    cvt->props[CVT_TYPE_DST].width, cvt->props[CVT_TYPE_DST].height,
-                    cvt->props[CVT_TYPE_DST].crop.x, cvt->props[CVT_TYPE_DST].crop.y,
-                    cvt->props[CVT_TYPE_DST].crop.w, cvt->props[CVT_TYPE_DST].crop.h,
-                    cvt->props[CVT_TYPE_DST].degree,
-                    cvt->props[CVT_TYPE_DST].hflip, cvt->props[CVT_TYPE_DST].vflip,
-                    cvt->props[CVT_TYPE_DST].secure, cvt->props[CVT_TYPE_DST].csc_range);
-        DBG("cvt(%p) dst_new('%c%c%c%c', %dx%d, %d,%d %dx%d, %d, %d&%d, %d, %d)",
-                    cvt, FOURCC_STR(dst_prop.drmfmt), dst_prop.width, dst_prop.height,
-                    dst_prop.crop.x, dst_prop.crop.y, dst_prop.crop.w, dst_prop.crop.h,
-                    dst_prop.degree, dst_prop.hflip, dst_prop.vflip,
-                    dst_prop.secure, dst_prop.csc_range);
-        return EINA_FALSE;
-    }
-#endif
-
    EINA_SAFETY_ON_FALSE_GOTO(cvt->prop_id >= 0, fail_to_convert);
    EINA_SAFETY_ON_FALSE_GOTO(src->handles[0] > 0, fail_to_convert);
    EINA_SAFETY_ON_FALSE_GOTO(dst->handles[0] > 0, fail_to_convert);
@@ -777,6 +721,7 @@ e_devmgr_cvt_convert(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst)
 
    if (!_e_devmgr_cvt_queue(cvt, src_cbuf))
      {
+        ERR("error: queue src buffer");
         e_devmgr_buffer_unref(src_cbuf->mbuf);
         goto fail_to_convert;
      }
@@ -789,6 +734,7 @@ e_devmgr_cvt_convert(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst)
 
    if (!_e_devmgr_cvt_queue(cvt, dst_cbuf))
      {
+         ERR("error: queue dst buffer");
          e_devmgr_buffer_unref(dst_cbuf->mbuf);
          goto fail_to_convert;
      }
