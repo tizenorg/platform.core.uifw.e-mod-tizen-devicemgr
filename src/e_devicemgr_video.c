@@ -25,6 +25,8 @@ struct _E_Video
 {
    E_Client *ec;
 
+   struct wl_listener client_destroy_listener;
+
    /* input info */
    uint drmfmt;
    int iw, ih;
@@ -182,10 +184,10 @@ get_video(E_Client *ec)
 }
 
 static void
-_e_video_input_buffer_cb_destroy(E_Devmgr_Buf *mbuf, void *data)
+_e_video_buffer_cb_destroy(E_Devmgr_Buf *mbuf, void *data)
 {
-   E_Video *video = (E_Video *)data;
-   video->input_buffer_list = eina_list_remove(video->input_buffer_list, mbuf);
+   Eina_List *list = (Eina_List *)data;
+   list = eina_list_remove(list, mbuf);
 }
 
 static E_Devmgr_Buf*
@@ -216,17 +218,10 @@ _e_video_input_buffer_get(E_Video *video, Tizen_Buffer *tizen_buffer, Eina_Bool 
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
-   e_devmgr_buffer_free_func_add(mbuf, _e_video_input_buffer_cb_destroy, video);
+   e_devmgr_buffer_free_func_add(mbuf, _e_video_buffer_cb_destroy, video->input_buffer_list);
    video->input_buffer_list = eina_list_append(video->input_buffer_list, mbuf);
 
    return mbuf;
-}
-
-static void
-_e_video_output_buffer_cb_destroy(E_Devmgr_Buf *mbuf, void *data)
-{
-   E_Video *video = (E_Video *)data;
-   video->output_buffer_list = eina_list_remove(video->output_buffer_list, mbuf);
 }
 
 static E_Devmgr_Buf*
@@ -244,7 +239,7 @@ _e_video_output_buffer_get(E_Video *video)
    mbuf = e_devmgr_buffer_alloc_fb(video->ow, video->oh, EINA_FALSE);
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
-   e_devmgr_buffer_free_func_add(mbuf, _e_video_output_buffer_cb_destroy, video);
+   e_devmgr_buffer_free_func_add(mbuf, _e_video_buffer_cb_destroy, video->output_buffer_list);
    video->output_buffer_list = eina_list_append(video->output_buffer_list, mbuf);
 
    return mbuf;
@@ -621,12 +616,28 @@ _e_video_vblank_handler(unsigned int sequence,
       _e_video_frame_buffer_show(video, vfb);
 }
 
+static void
+_e_video_cb_client_destroy(struct wl_listener *listener, void *data)
+{
+   E_Video *video = container_of(listener, E_Video, client_destroy_listener);
+
+   _e_video_destroy(video);
+}
+
 static E_Video*
 _e_video_create(E_Client *ec)
 {
    E_Video *video = NULL;
+   E_Comp_Wl_Client_Data *cdata;
+   struct wl_client *client;
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(ec, NULL);
+
+   cdata = e_pixmap_cdata_get(ec->pixmap);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(cdata, NULL);
+
+   client = wl_resource_get_client(cdata->wl_surface);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(client, NULL);
 
    video = calloc(1, sizeof *video);
    EINA_SAFETY_ON_NULL_RETURN_VAL(video, NULL);
@@ -678,6 +689,9 @@ _e_video_create(E_Client *ec)
 
    e_devicemgr_drm_vblank_handler_add(_e_video_vblank_handler, video);
 
+   video->client_destroy_listener.notify = _e_video_cb_client_destroy;
+   wl_client_add_destroy_listener(client, &video->client_destroy_listener);
+
    return video;
 failed:
    if (video)
@@ -693,6 +707,12 @@ _e_video_destroy(E_Video *video)
 
    if (!video)
       return;
+
+   if (video->client_destroy_listener.notify)
+     {
+        wl_list_remove(&video->client_destroy_listener.link);
+        video->client_destroy_listener.notify = NULL;
+     }
 
    /* hide video plane first */
    _e_video_frame_buffer_show(video, NULL);
