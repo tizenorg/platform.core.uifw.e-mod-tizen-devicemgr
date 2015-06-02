@@ -22,6 +22,7 @@ typedef enum _E_Devmgr_Buf_Type
 {
    TYPE_TB,
    TYPE_BO,
+   TYPE_EXT,
 } E_Devmgr_Buf_Type;
 
 typedef enum
@@ -75,6 +76,7 @@ E_Devmgr_Buf_Color_Type e_devmgr_buffer_color_type (unsigned int drmfmt);
 
 E_Devmgr_Buf* _e_devmgr_buffer_create    (Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_create_fb (Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char *func);
+E_Devmgr_Buf* _e_devmgr_buffer_create_ext(uint handle, int width, int height, uint format, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_alloc_fb  (int width, int height, Eina_Bool secure, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_ref    (E_Devmgr_Buf *mbuf, const char *func);
 void          _e_devmgr_buffer_unref  (E_Devmgr_Buf *mbuf, const char *func);
@@ -88,6 +90,7 @@ void         e_devmgr_buffer_free_func_del  (E_Devmgr_Buf *mbuf, MBuf_Free_Func 
 
 #define e_devmgr_buffer_create(t,d)      _e_devmgr_buffer_create(t,d,__FUNCTION__)
 #define e_devmgr_buffer_create_fb(t,d)   _e_devmgr_buffer_create_fb(t,d,__FUNCTION__)
+#define e_devmgr_buffer_create_ext(d,w,h,f)    _e_devmgr_buffer_create_ext(d,w,h,f,__FUNCTION__)
 #define e_devmgr_buffer_alloc_fb(w,h,d)  _e_devmgr_buffer_alloc_fb(w,h,d,__FUNCTION__)
 #define e_devmgr_buffer_ref(b)    _e_devmgr_buffer_ref(b,__FUNCTION__)
 #define e_devmgr_buffer_unref(b)  _e_devmgr_buffer_unref(b,__FUNCTION__)

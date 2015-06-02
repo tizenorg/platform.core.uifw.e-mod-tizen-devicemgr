@@ -163,8 +163,7 @@ set_mbuf_converting(E_Devmgr_Buf *mbuf, E_Devmgr_Cvt *cvt, Eina_Bool converting)
                   return EINA_TRUE;
                }
           }
-        ERR("failed: %d not found in %d.", cvt->stamp, mbuf->stamp);
-        return EINA_FALSE;
+        return EINA_TRUE;
      }
    else
      {
@@ -285,7 +284,12 @@ _e_devmgr_cvt_queue(E_Devmgr_Cvt *cvt, E_Devmgr_CvtBuf *cbuf)
    struct drm_exynos_ipp_queue_buf buf = {0,};
    struct wl_list *bufs;
    int i;
-   int index = _e_devmgr_cvt_get_empty_index(cvt, cbuf->type);
+   int index;
+
+   if (!set_mbuf_converting(cbuf->mbuf, cvt, EINA_TRUE))
+     return EINA_FALSE;
+
+   index = _e_devmgr_cvt_get_empty_index(cvt, cbuf->type);
 
    buf.prop_id = cvt->prop_id;
    buf.ops_id = (cbuf->type == CVT_TYPE_SRC) ? EXYNOS_DRM_OPS_SRC : EXYNOS_DRM_OPS_DST;
@@ -297,12 +301,13 @@ _e_devmgr_cvt_queue(E_Devmgr_Cvt *cvt, E_Devmgr_CvtBuf *cbuf)
      buf.handle[i] = (__u32)cbuf->handles[i];
 
    if (!e_devicemgr_drm_ipp_queue(&buf))
-     return EINA_FALSE;
+     {
+        set_mbuf_converting(cbuf->mbuf, cvt, EINA_FALSE);
+        return EINA_FALSE;
+     }
 
    bufs = (cbuf->type == CVT_TYPE_SRC) ? &cvt->src_bufs : &cvt->dst_bufs;
    wl_list_insert(bufs, &cbuf->link);
-
-   set_mbuf_converting(cbuf->mbuf, cvt, EINA_TRUE);
 
    if (cbuf->mbuf->type == TYPE_TB && cbuf->mbuf->b.tizen_buffer->buffer)
      {
@@ -705,38 +710,35 @@ e_devmgr_cvt_convert(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst)
    EINA_SAFETY_ON_NULL_RETURN_VAL(dst, EINA_FALSE);
    EINA_SAFETY_ON_FALSE_RETURN_VAL(MBUF_IS_VALID(src), EINA_FALSE);
    EINA_SAFETY_ON_FALSE_RETURN_VAL(MBUF_IS_VALID(dst), EINA_FALSE);
-
-   EINA_SAFETY_ON_FALSE_GOTO(cvt->prop_id >= 0, fail_to_convert);
-   EINA_SAFETY_ON_FALSE_GOTO(src->handles[0] > 0, fail_to_convert);
-   EINA_SAFETY_ON_FALSE_GOTO(dst->handles[0] > 0, fail_to_convert);
+   EINA_SAFETY_ON_FALSE_RETURN_VAL(cvt->prop_id >= 0, EINA_FALSE);
+   EINA_SAFETY_ON_FALSE_RETURN_VAL(src->handles[0] > 0, EINA_FALSE);
+   EINA_SAFETY_ON_FALSE_RETURN_VAL(dst->handles[0] > 0, EINA_FALSE);
 
    src_cbuf = calloc(1, sizeof(E_Devmgr_CvtBuf));
-   EINA_SAFETY_ON_FALSE_GOTO(src_cbuf != NULL, fail_to_convert);
+   EINA_SAFETY_ON_FALSE_GOTO(src_cbuf != NULL, fail);
    dst_cbuf = calloc(1, sizeof(E_Devmgr_CvtBuf));
-   EINA_SAFETY_ON_FALSE_GOTO(dst_cbuf != NULL, fail_to_convert);
+   EINA_SAFETY_ON_FALSE_GOTO(dst_cbuf != NULL, fail);
 
    src_cbuf->type = CVT_TYPE_SRC;
    src_cbuf->mbuf = e_devmgr_buffer_ref(src);
    memcpy(src_cbuf->handles, src->handles, sizeof(uint) * 4);
 
-   if (!_e_devmgr_cvt_queue(cvt, src_cbuf))
-     {
-        ERR("error: queue src buffer");
-        e_devmgr_buffer_unref(src_cbuf->mbuf);
-        goto fail_to_convert;
-     }
-
-   DBG("cvt(%p) srcbuf(%p) converting(%d)", cvt, src, MBUF_IS_CONVERTING(src));
-
    dst_cbuf->type = CVT_TYPE_DST;
    dst_cbuf->mbuf = e_devmgr_buffer_ref(dst);
    memcpy(dst_cbuf->handles, dst->handles, sizeof(uint) * 4);
 
+   if (!_e_devmgr_cvt_queue(cvt, src_cbuf))
+     {
+        ERR("error: queue src buffer");
+        goto fail;
+     }
+
+   DBG("cvt(%p) srcbuf(%p) converting(%d)", cvt, src, MBUF_IS_CONVERTING(src));
+
    if (!_e_devmgr_cvt_queue(cvt, dst_cbuf))
      {
          ERR("error: queue dst buffer");
-         e_devmgr_buffer_unref(dst_cbuf->mbuf);
-         goto fail_to_convert;
+         goto fail_queue_dst;
      }
 
    DBG("cvt(%p) dstbuf(%p) converting(%d)", cvt, dst, MBUF_IS_CONVERTING(dst));
@@ -751,7 +753,7 @@ e_devmgr_cvt_convert(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst)
         ctrl.prop_id = cvt->prop_id;
         ctrl.ctrl = IPP_CTRL_PLAY;
         if (!e_devicemgr_drm_ipp_cmd(&ctrl))
-            goto fail_to_convert;
+            goto fail_cmd;
         DBG("cvt(%p) start. prop_id(%d)", cvt, ctrl.prop_id);
         cvt->started = EINA_TRUE;
      }
@@ -760,15 +762,28 @@ e_devmgr_cvt_convert(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst)
 
    return EINA_TRUE;
 
-   fail_to_convert:
-
-   if (src_cbuf)
-     free(src_cbuf);
-   if (dst_cbuf)
-     free(dst_cbuf);
+fail_cmd:
+   _e_devmgr_cvt_dequeue(cvt, dst_cbuf);
+   _e_devmgr_cvt_dequeued(cvt, dst_cbuf->type, dst_cbuf->index);
+fail_queue_dst:
+   _e_devmgr_cvt_dequeue(cvt, src_cbuf);
+   _e_devmgr_cvt_dequeued(cvt, src_cbuf->type, src_cbuf->index);
 
    _e_devmgr_cvt_stop(cvt);
+   return EINA_FALSE;
+fail:
+   if (src_cbuf)
+     {
+        e_devmgr_buffer_unref(src_cbuf->mbuf);
+        free(src_cbuf);
+     }
+   if (dst_cbuf)
+     {
+        e_devmgr_buffer_unref(dst_cbuf->mbuf);
+        free(dst_cbuf);
+     }
 
+   _e_devmgr_cvt_stop(cvt);
    return EINA_FALSE;
 }
 

@@ -544,6 +544,8 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
          return;
      }
 
+   target_msc++;
+
    if (!e_devicemgr_drm_wait_vblank(video->pipe, &target_msc, video))
      {
          ERR("failed: e_devicemgr_drm_wait_vblank");

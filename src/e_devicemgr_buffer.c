@@ -332,6 +332,56 @@ create_fail:
 }
 
 E_Devmgr_Buf*
+_e_devmgr_buffer_create_ext(uint handle, int width, int height, uint format, const char *func)
+{
+   E_Devmgr_Buf *mbuf = NULL;
+   uint stamp;
+
+   EINA_SAFETY_ON_FALSE_RETURN_VAL(handle > 0, NULL);
+   EINA_SAFETY_ON_FALSE_RETURN_VAL(width > 0, NULL);
+   EINA_SAFETY_ON_FALSE_RETURN_VAL(height > 0, NULL);
+   if (format != TIZEN_BUFFER_POOL_FORMAT_ARGB8888 && format != TIZEN_BUFFER_POOL_FORMAT_XRGB8888)
+     {
+        NEVER_GET_HERE();
+        return NULL;
+     }
+
+   mbuf = calloc(1, sizeof(E_Devmgr_Buf));
+   EINA_SAFETY_ON_FALSE_GOTO(mbuf != NULL, create_fail);
+
+   mbuf->drmfmt = format;
+   mbuf->width = width;
+   mbuf->height = height;
+   mbuf->pitches[0] = (width << 2);
+   mbuf->size = mbuf->lengths[0] = mbuf->pitches[0] * mbuf->height;
+
+   mbuf->type = TYPE_EXT;
+   mbuf->handles[0] = handle;
+
+   wl_list_init(&mbuf->convert_info);
+   wl_list_init(&mbuf->free_funcs);
+
+   _e_devmgr_mbuf_list_init();
+   wl_list_insert(&mbuf_lists, &mbuf->valid_link);
+
+   stamp = e_devmgr_buffer_get_mills();
+   while(_find_mbuf(stamp))
+     stamp++;
+   mbuf->stamp = stamp;
+
+   mbuf->func = strdup(func);
+   mbuf->ref_cnt = 1;
+
+   DBG("%d(%d) create_ext: %s", mbuf->stamp, mbuf->ref_cnt, func);
+
+   return mbuf;
+
+create_fail:
+   e_devmgr_buffer_free(mbuf);
+   return NULL;
+}
+
+E_Devmgr_Buf*
 _e_devmgr_buffer_alloc_fb(int width, int height, Eina_Bool secure, const char *func)
 {
    E_Devmgr_Buf *mbuf = NULL;

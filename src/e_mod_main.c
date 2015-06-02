@@ -60,14 +60,6 @@ e_modapi_init(E_Module *m)
      }
 
 #ifdef HAVE_WAYLAND_ONLY
-   const char *engine_name = ecore_evas_engine_name_get(e_comp->ee);
-   if (!strncmp(engine_name, "drm", 3) || !strncmp(engine_name, "gl_drm", 6) || !strncmp(engine_name, "fb", 2))
-     if (!e_devicemgr_screenshooter_init())
-       {
-          SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_screenshooter_init()..!\n", __FUNCTION__);
-          return NULL;
-       }
-
    if (!e_devicemgr_drm_init())
      {
         SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_drm_init()..!\n", __FUNCTION__);
@@ -91,6 +83,14 @@ e_modapi_init(E_Module *m)
         SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_window_screen_init()..!\n", __FUNCTION__);
         return NULL;
      }
+
+   const char *engine_name = ecore_evas_engine_name_get(e_comp->ee);
+   if (!strncmp(engine_name, "drm", 3) || !strncmp(engine_name, "gl_drm", 6))
+     if (!e_devicemgr_screenshooter_init())
+       {
+          SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_screenshooter_init()..!\n", __FUNCTION__);
+          return NULL;
+       }
 #endif
 
    return m;

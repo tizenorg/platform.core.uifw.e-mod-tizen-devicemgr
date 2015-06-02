@@ -480,7 +480,6 @@ Eina_Bool
 e_devicemgr_drm_wait_vblank(int pipe, uint *target_msc, void *data)
 {
    drmVBlank vbl;
-   int flip = 1;
 
    vbl.request.type =  DRM_VBLANK_ABSOLUTE | DRM_VBLANK_EVENT;
    if (pipe > 0)
@@ -495,7 +494,7 @@ e_devicemgr_drm_wait_vblank(int pipe, uint *target_msc, void *data)
         return EINA_FALSE;
      }
 
-   *target_msc = vbl.reply.sequence + flip;
+   *target_msc = vbl.reply.sequence;
 
    return EINA_TRUE;
 }
