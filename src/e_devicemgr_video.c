@@ -51,7 +51,7 @@ struct _E_Video
    E_Video_Fb *current_fb;
 };
 
-static uint format_table[] =
+static uint video_format_table[] =
 {
    TIZEN_BUFFER_POOL_FORMAT_ARGB8888,
    TIZEN_BUFFER_POOL_FORMAT_XRGB8888,
@@ -65,7 +65,7 @@ static uint format_table[] =
    TIZEN_BUFFER_POOL_FORMAT_ST12
 };
 
-#define NUM_FORMAT        (sizeof(format_table) / sizeof(format_table[0]))
+#define NUM_VIDEO_FORMAT   (sizeof(video_format_table) / sizeof(video_format_table[0]))
 
 static Eina_List *video_list;
 
@@ -860,12 +860,12 @@ _e_video_buffer_pool_cb_get_formats(void *user_data, int *format_cnt)
 
    *format_cnt = 0;
 
-   fmts = malloc(NUM_FORMAT * sizeof(uint));
+   fmts = malloc(NUM_VIDEO_FORMAT * sizeof(uint));
    EINA_SAFETY_ON_NULL_RETURN_VAL(fmts, NULL);
 
-   memcpy(fmts, format_table, NUM_FORMAT * sizeof(uint));
+   memcpy(fmts, video_format_table, NUM_VIDEO_FORMAT * sizeof(uint));
 
-   *format_cnt = NUM_FORMAT;
+   *format_cnt = NUM_VIDEO_FORMAT;
 
    return fmts;
 }
