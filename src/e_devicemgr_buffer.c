@@ -278,8 +278,11 @@ _e_devmgr_buffer_create(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char
    mbuf->type = TYPE_TB;
    mbuf->b.tizen_buffer = tizen_buffer;
 
-   mbuf->buffer_destroy_listener.notify = _e_devmgr_buffer_cb_destroy;
-   wl_signal_add(&tizen_buffer->buffer->destroy_signal, &mbuf->buffer_destroy_listener);
+   if (tizen_buffer->buffer)
+     {
+        mbuf->buffer_destroy_listener.notify = _e_devmgr_buffer_cb_destroy;
+        wl_signal_add(&tizen_buffer->buffer->destroy_signal, &mbuf->buffer_destroy_listener);
+     }
 
    mbuf->secure = secure;
 
@@ -426,9 +429,17 @@ _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func)
    if (!mbuf)
      return;
 
+   MBUF_RETURN_IF_FAIL(mbuf->ref_cnt == 0);
    MBUF_RETURN_IF_FAIL(_e_devmgr_buffer_valid(mbuf, func));
    MBUF_RETURN_IF_FAIL(!MBUF_IS_CONVERTING(mbuf));
    MBUF_RETURN_IF_FAIL(mbuf->showing == EINA_FALSE);
+
+   if (mbuf->buffer_destroy_listener.notify)
+     {
+        wl_list_remove(&mbuf->buffer_destroy_listener.link);
+        mbuf->buffer_destroy_listener.notify = NULL;
+     }
+
 
    wl_list_for_each_safe(cur, next, &mbuf->free_funcs, link)
      {
@@ -637,8 +648,13 @@ e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *file, Eina_Bool raw)
 
    if (mbuf->type == TYPE_TB)
      memcpy(bo, mbuf->b.tizen_buffer->bo, sizeof(tbm_bo)*3);
-   else
+   else if (mbuf->type == TYPE_BO)
      memcpy(bo, mbuf->b.bo, sizeof(tbm_bo)*3);
+   else
+     {
+        DBG("not support");
+        return;
+     }
 
    ptr = tbm_bo_map(bo[0], TBM_DEVICE_CPU, TBM_OPTION_READ).ptr;
    if (mbuf->drmfmt == TIZEN_BUFFER_POOL_FORMAT_XRGB8888 ||
