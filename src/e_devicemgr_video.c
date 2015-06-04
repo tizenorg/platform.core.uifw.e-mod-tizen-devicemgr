@@ -657,7 +657,7 @@ _e_video_create(E_Client *ec)
 
         CLEAR(src);
         CLEAR(dst);
-        src.drmfmt = TIZEN_BUFFER_POOL_FORMAT_YUV420;
+        src.drmfmt = video->drmfmt;
         src.width = video->iw;
         src.height = video->ih;
         src.crop = video->ir;
