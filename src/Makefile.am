@@ -19,6 +19,7 @@ module_la_SOURCES      += \
 	e_devicemgr_drm.c \
 	e_devicemgr_buffer.c \
 	e_devicemgr_converter.c \
+	e_screenshooter_server_protocol.c \
 	e_tizen_screenshooter_server_protocol.c \
 	e_devicemgr_window_screen.c \
 	e_devicemgr_window_screen.h \

@@ -3,6 +3,7 @@
 #include <wayland-server.h>
 #include <Ecore_Wayland.h>
 #include <Ecore_Drm.h>
+#include "e_screenshooter_server_protocol.h"
 #include "e_tizen_screenshooter_server_protocol.h"
 #include "e_devicemgr_screenshooter.h"
 #include "e_devicemgr_buffer.h"
@@ -32,6 +33,8 @@ typedef struct _E_Mirror
    E_Devmgr_Cvt *cvt;
    Eina_List *src_buffer_list;
    Eina_List *dst_buffer_list;
+
+   Eina_Bool destroy_mirror_after_oneshot;
 
    struct wl_listener client_destroy_listener;
 } E_Mirror;
@@ -247,6 +250,8 @@ _e_mirror_cvt_callback(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst, 
      if (dst->b.tizen_buffer->drm_buffer->resource == buffer->resource)
        {
           _e_mirror_buffer_dequeue(buffer);
+          if (mirror->destroy_mirror_after_oneshot)
+            _e_mirror_destroy(mirror);
           break;
        }
 
@@ -349,6 +354,10 @@ _e_mirror_shm_dump(E_Mirror_Buffer *buffer)
                     output->x, output->y, output->w, output->h,
                     dst.x, dst.y, dst.w, dst.h);
    wl_shm_buffer_end_access(shm_buffer);
+
+   DBG("dump src(%d,%d,%d,%d) dst(%d,%d %d,%d,%d,%d)",
+       output->x, output->y, output->w, output->h,
+       width, height, dst.x, dst.y, dst.w, dst.h);
 }
 
 static Eina_Bool
@@ -374,6 +383,37 @@ _e_mirror_drm_dump(E_Mirror_Buffer *buffer)
 }
 
 static void
+_e_mirror_dump(E_Mirror_Buffer *buffer)
+{
+   E_Mirror *mirror = buffer->mirror;
+
+   EINA_SAFETY_ON_NULL_RETURN(buffer);
+
+   /* in case of wl_shm_buffer */
+   if (wl_shm_buffer_get(buffer->resource))
+     {
+        _e_mirror_shm_dump(buffer);
+        _e_mirror_buffer_dequeue(buffer);
+        if (mirror->destroy_mirror_after_oneshot)
+          _e_mirror_destroy(mirror);
+     }
+   else if (e_drm_buffer_get(buffer->resource))
+     {
+        /* If _e_mirror_drm_dump return FALSE, we dequeue buffer at now.
+         * Otherwise, _e_mirror_buffer_dequeue will be called in cvt callback
+         */
+        if (!_e_mirror_drm_dump(buffer))
+          {
+            _e_mirror_buffer_dequeue(buffer);
+            if (mirror->destroy_mirror_after_oneshot)
+              _e_mirror_destroy(mirror);
+          }
+     }
+   else
+      NEVER_GET_HERE();
+}
+
+static void
 _e_mirror_buffer_queue(E_Mirror_Buffer *buffer)
 {
    E_Mirror *mirror = buffer->mirror;
@@ -393,7 +433,15 @@ _e_mirror_buffer_dequeue(E_Mirror_Buffer *buffer)
      return;
 
    mirror->buffer_queue = eina_list_remove(mirror->buffer_queue, buffer);
-   tizen_screenmirror_send_dequeued(mirror->resource, buffer->resource);
+
+   /* resource == shooter means that we're using weston screenshooter
+    * In case of setson screenshooter, send a done event. Otherwise, send
+    * a dequeued event for tizen_screenmirror.
+    */
+   if (mirror->resource == mirror->shooter)
+     screenshooter_send_done(mirror->resource);
+   else
+     tizen_screenmirror_send_dequeued(mirror->resource, buffer->resource);
 }
 
 static void
@@ -448,20 +496,7 @@ _e_mirror_vblank_handler(uint sequence, uint tv_sec, uint tv_usec, void *data)
    if (!buffer)
      return;
 
-   /* in case of wl_shm_buffer */
-   if (wl_shm_buffer_get(buffer->resource))
-     {
-        _e_mirror_shm_dump(buffer);
-        _e_mirror_buffer_dequeue(buffer);
-     }
-   else if (e_drm_buffer_get(buffer->resource))
-     {
-        /* If _e_mirror_drm_dump return FALSE, we dequeue buffer at now.
-         * Otherwise, _e_mirror_buffer_dequeue will be called in cvt callback
-         */
-        if (!_e_mirror_drm_dump(buffer))
-          _e_mirror_buffer_dequeue(buffer);
-     }
+   _e_mirror_dump(buffer);
 
    _e_mirror_watch_vblank(mirror);
 }
@@ -693,6 +728,75 @@ _e_tz_screenshooter_cb_bind(struct wl_client *client, void *data, uint32_t versi
    wl_resource_set_implementation(res, &_e_tz_screenshooter_interface, cdata, NULL);
 }
 
+static void
+_e_screenshooter_cb_shoot(struct wl_client *client,
+                          struct wl_resource *resource,
+                          struct wl_resource *output_resource,
+                          struct wl_resource *buffer_resource)
+{
+   E_Mirror *mirror;
+   E_Mirror_Buffer *buffer;
+
+   if (!wl_shm_buffer_get(buffer_resource) && !e_drm_buffer_get(buffer_resource))
+     {
+        wl_resource_post_error(resource, WL_DISPLAY_ERROR_INVALID_OBJECT,
+                               "tizen_screenshooter failed: wrong buffer resource");
+        return;
+     }
+
+   mirror = _e_mirror_create(client);
+   if (!mirror)
+     {
+        wl_resource_post_no_memory(resource);
+        return;
+     }
+
+   mirror->resource = resource;
+   mirror->shooter = resource;
+   mirror->output = output_resource;
+   mirror->destroy_mirror_after_oneshot = EINA_TRUE;
+
+   _e_mirror_crtc_info_get(mirror);
+
+   buffer = _e_mirror_buffer_get(mirror, buffer_resource);
+   if (!buffer)
+     {
+        wl_resource_post_no_memory(resource);
+        _e_mirror_destroy(mirror);
+        return;
+     }
+
+   _e_mirror_buffer_queue(buffer);
+   _e_mirror_dump(buffer);
+}
+
+static const struct screenshooter_interface _e_screenshooter_interface =
+{
+   _e_screenshooter_cb_shoot
+};
+
+static void
+_e_screenshooter_cb_bind(struct wl_client *client, void *data, uint32_t version, uint32_t id)
+{
+   E_Comp_Data *cdata;
+   struct wl_resource *res;
+
+   if (!(cdata = data))
+     {
+        wl_client_post_no_memory(client);
+        return;
+     }
+
+   if (!(res = wl_resource_create(client, &screenshooter_interface, MIN(version, 1), id)))
+     {
+        ERR("Could not create screenshooter resource");
+        wl_client_post_no_memory(client);
+        return;
+     }
+
+   wl_resource_set_implementation(res, &_e_screenshooter_interface, cdata, NULL);
+}
+
 static uint
 _e_screenmirror_buffer_get_capbilities(void *user_data)
 {
@@ -770,6 +874,14 @@ e_devicemgr_screenshooter_init(void)
    if (!e_comp) return 0;
    if (!(cdata = e_comp->wl_comp_data)) return 0;
    if (!cdata->wl.disp) return 0;
+
+   /* try to add screenshooter to wayland globals */
+   if (!wl_global_create(cdata->wl.disp, &screenshooter_interface, 1,
+                         cdata, _e_screenshooter_cb_bind))
+     {
+        ERR("Could not add screenshooter to wayland globals");
+        return 0;
+     }
 
    /* try to add tizen_screenshooter to wayland globals */
    if (!wl_global_create(cdata->wl.disp, &tizen_screenshooter_interface, 1,
