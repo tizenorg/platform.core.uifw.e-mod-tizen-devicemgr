@@ -184,10 +184,10 @@ get_video(E_Client *ec)
 }
 
 static void
-_e_video_buffer_cb_destroy(E_Devmgr_Buf *mbuf, void *data)
+_e_video_input_buffer_cb_destroy(E_Devmgr_Buf *mbuf, void *data)
 {
-   Eina_List *list = (Eina_List *)data;
-   list = eina_list_remove(list, mbuf);
+   E_Video *video = (E_Video *)data;
+   video->input_buffer_list = eina_list_remove(video->input_buffer_list, mbuf);
 }
 
 static E_Devmgr_Buf*
@@ -218,10 +218,17 @@ _e_video_input_buffer_get(E_Video *video, Tizen_Buffer *tizen_buffer, Eina_Bool 
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
-   e_devmgr_buffer_free_func_add(mbuf, _e_video_buffer_cb_destroy, video->input_buffer_list);
+   e_devmgr_buffer_free_func_add(mbuf, _e_video_input_buffer_cb_destroy, video);
    video->input_buffer_list = eina_list_append(video->input_buffer_list, mbuf);
 
    return mbuf;
+}
+
+static void
+_e_video_output_buffer_cb_destroy(E_Devmgr_Buf *mbuf, void *data)
+{
+   E_Video *video = (E_Video *)data;
+   video->output_buffer_list = eina_list_remove(video->output_buffer_list, mbuf);
 }
 
 static E_Devmgr_Buf*
@@ -239,7 +246,7 @@ _e_video_output_buffer_get(E_Video *video)
    mbuf = e_devmgr_buffer_alloc_fb(video->ow, video->oh, EINA_FALSE);
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
-   e_devmgr_buffer_free_func_add(mbuf, _e_video_buffer_cb_destroy, video->output_buffer_list);
+   e_devmgr_buffer_free_func_add(mbuf, _e_video_output_buffer_cb_destroy, video);
    video->output_buffer_list = eina_list_append(video->output_buffer_list, mbuf);
 
    return mbuf;
@@ -704,6 +711,7 @@ _e_video_destroy(E_Video *video)
 {
    E_Devmgr_Buf *mbuf;
    E_Video_Fb *vfb;
+   Eina_List *l, *ll;
 
    if (!video)
       return;
@@ -728,14 +736,16 @@ _e_video_destroy(E_Video *video)
      e_devmgr_cvt_destroy(video->cvt);
 
    /* others */
-   EINA_LIST_FREE(video->input_buffer_list, mbuf)
+   EINA_LIST_FOREACH_SAFE(video->input_buffer_list, l, ll, mbuf)
      e_devmgr_buffer_unref(mbuf);
-   EINA_LIST_FREE(video->output_buffer_list, mbuf)
+
+   EINA_LIST_FOREACH_SAFE(video->output_buffer_list, l, ll, mbuf)
      e_devmgr_buffer_unref(mbuf);
 
    e_devicemgr_drm_vblank_handler_del(_e_video_vblank_handler, video);
 
    video_list = eina_list_remove(video_list, video);
+
    free(video);
 }
 

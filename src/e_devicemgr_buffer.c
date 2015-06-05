@@ -300,7 +300,7 @@ _e_devmgr_buffer_create(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char
    mbuf->func = strdup(func);
    mbuf->ref_cnt = 1;
 
-   DBG("%d create: %s", mbuf->stamp, func);
+   DBG("%d(%d) create: %s", mbuf->stamp, mbuf->ref_cnt, func);
 
    return mbuf;
 
@@ -384,7 +384,7 @@ _e_devmgr_buffer_alloc_fb(int width, int height, Eina_Bool secure, const char *f
    mbuf->func = strdup(func);
    mbuf->ref_cnt = 1;
 
-   DBG("%d alloc: %s", mbuf->stamp, func);
+   DBG("%d(%d) alloc: %s", mbuf->stamp, mbuf->ref_cnt, func);
 
    return mbuf;
 
@@ -395,7 +395,7 @@ alloc_fail:
 }
 
 E_Devmgr_Buf*
-e_devmgr_buffer_ref(E_Devmgr_Buf *mbuf)
+_e_devmgr_buffer_ref(E_Devmgr_Buf *mbuf, const char *func)
 {
    if (!mbuf)
      return NULL;
@@ -403,6 +403,7 @@ e_devmgr_buffer_ref(E_Devmgr_Buf *mbuf)
    EINA_SAFETY_ON_FALSE_RETURN_VAL(MBUF_IS_VALID(mbuf), NULL);
 
    mbuf->ref_cnt++;
+   DBG("%d(%d) ref: %s", mbuf->stamp, mbuf->ref_cnt, func);
 
    return mbuf;
 }
@@ -416,6 +417,8 @@ _e_devmgr_buffer_unref(E_Devmgr_Buf *mbuf, const char *func)
    MBUF_RETURN_IF_FAIL(_e_devmgr_buffer_valid(mbuf, func));
 
    mbuf->ref_cnt--;
+   DBG("%d(%d) unref: %s", mbuf->stamp, mbuf->ref_cnt, func);
+
    if (mbuf->ref_cnt == 0)
      _e_devmgr_buffer_free(mbuf, func);
 }
