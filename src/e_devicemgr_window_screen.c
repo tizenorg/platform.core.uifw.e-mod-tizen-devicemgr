@@ -1,6 +1,7 @@
 #define E_COMP_WL
 #include <e.h>
 #include "e_devicemgr_window_screen.h"
+#include "e_devicemgr_dpms.h"
 
 #include <wayland-server.h>
 #include "tizen_window_screen-server-protocol.h"
@@ -16,14 +17,137 @@ static Eina_Hash *_hash_window_screen_modes = NULL;
 static Eina_List *_window_screen_modes = NULL;
 static Eina_List *_handlers = NULL;
 static Eina_List *_hooks = NULL;
+static uint32_t _current_screen_mode = TIZEN_WINDOW_SCREEN_MODE_DEFAULT;
+static Eldbus_Connection *_conn = NULL;
+
+static Eina_Bool
+_win_scr_mode_get(E_Client *ec, uint32_t *mode)
+{
+   Window_Screen_Mode *wsm;
+   E_Comp_Client_Data *cdata;
+   struct wl_resource *surface;
+
+   EINA_SAFETY_ON_NULL_RETURN_VAL(ec, EINA_FALSE);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(mode, EINA_FALSE);
+   if (e_object_is_del(E_OBJECT(ec))) return EINA_FALSE;
+
+   cdata = e_pixmap_cdata_get(ec->pixmap);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(cdata, EINA_FALSE);
+   surface = cdata->wl_surface;
+   EINA_SAFETY_ON_NULL_RETURN_VAL(surface, EINA_FALSE);
+
+   wsm = eina_hash_find(_hash_window_screen_modes, &surface);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(wsm, EINA_FALSE);
+
+   *mode = wsm->mode;
+
+   return EINA_TRUE;
+}
+
+void _win_scr_mode_send(uint32_t mode)
+{
+   Eldbus_Message *msg = NULL;
+   unsigned int timeout = 0;
+
+   if(!_conn) return;
+
+   if(mode == TIZEN_WINDOW_SCREEN_MODE_ALWAYS_ON)
+     {
+        msg = eldbus_message_method_call_new("org.tizen.system.deviced",
+                                             "/Org/Tizen/System/DeviceD/Display",
+                                             "org.tizen.system.deviced.display",
+                                             "lockstate");
+        if(!msg)
+          {
+             ERR("ERR Could not create DBus Message: %m");
+             return;
+          }
+        eldbus_message_arguments_append(msg,
+                                        "s", "lcdon",
+                                        "s", "staycurstate",
+                                        "s", "",
+                                        "i", timeout);
+
+        _current_screen_mode = TIZEN_WINDOW_SCREEN_MODE_ALWAYS_ON;
+     }
+   else if(mode == TIZEN_WINDOW_SCREEN_MODE_DEFAULT)
+     {
+        msg = eldbus_message_method_call_new("org.tizen.system.deviced",
+                                             "/Org/Tizen/System/DeviceD/Display",
+                                             "org.tizen.system.deviced.display",
+                                             "unlockstate");
+        if(!msg)
+          {
+             ERR("ERR Could not create DBus Message: %m");
+             return;
+          }
+        eldbus_message_arguments_append(msg,
+                                        "s", "lcdon",
+                                        "s", "sleepmargin");
+
+        _current_screen_mode = TIZEN_WINDOW_SCREEN_MODE_DEFAULT;
+     }
+
+   if (!eldbus_connection_send(_conn, msg, NULL, NULL, -1))
+     {
+        ERR("ERR Could not send DBus Message: %m");
+        eldbus_message_unref(msg);
+     }
+}
 
 static void
 _window_screen_mode_apply(void)
 {
-  //traversal e_client loop
-  // if  e_client is visible then apply screen_mode
-  // if all e_clients are default mode then set default screen_mode
-  return;
+   E_Client *ec;
+   E_Zone *zone;
+   uint32_t cur_mode, new_mode;
+   Eina_Bool apply_mode = EINA_FALSE;
+
+   cur_mode = _current_screen_mode;
+
+   E_CLIENT_REVERSE_FOREACH(e_comp, ec)
+     {
+        zone = ec->zone;
+        // Add check zone id
+        if (E_INTERSECTS(ec->x, ec->y, ec->w, ec->h,
+                         zone->x, zone->y, zone->w, zone->h))
+          {
+             if (ec->visibility.obscured)
+               {
+                  break;
+               }
+             else
+               {
+                  uint32_t _mode;
+                  if (!_win_scr_mode_get(ec, &_mode)) continue;
+
+                  new_mode = _mode;
+                  apply_mode = EINA_TRUE;
+
+                  if (_mode == TIZEN_WINDOW_SCREEN_MODE_ALWAYS_ON)
+                    break;// mode is always on case
+               }
+          }
+     }
+
+   if (apply_mode)
+     {
+        if (new_mode == TIZEN_WINDOW_SCREEN_MODE_ALWAYS_ON)
+          {
+             if (cur_mode != TIZEN_WINDOW_SCREEN_MODE_ALWAYS_ON)
+               _win_scr_mode_send(TIZEN_WINDOW_SCREEN_MODE_ALWAYS_ON);
+          }
+        else
+          {
+             if (cur_mode != TIZEN_WINDOW_SCREEN_MODE_DEFAULT)
+               _win_scr_mode_send(TIZEN_WINDOW_SCREEN_MODE_DEFAULT);
+          }
+     }
+   else
+     {
+        if (cur_mode != TIZEN_WINDOW_SCREEN_MODE_DEFAULT)
+          _win_scr_mode_send(TIZEN_WINDOW_SCREEN_MODE_DEFAULT);
+     }
 }
 
 static void
@@ -141,9 +265,6 @@ _cb_client_visibility_change(void *data EINA_UNUSED,
                              int type   EINA_UNUSED,
                              void      *event)
 {
-   //E_Event_Client *ev;
-   //ev = event;
-
    _window_screen_mode_apply();
 
    return ECORE_CALLBACK_PASS_ON;
@@ -171,10 +292,18 @@ e_devicemgr_window_screen_init(void)
    EINA_SAFETY_ON_NULL_RETURN_VAL(cdata, EINA_FALSE);
    EINA_SAFETY_ON_NULL_RETURN_VAL(cdata->wl.disp, EINA_FALSE);
 
+   _conn = eldbus_connection_get(ELDBUS_CONNECTION_TYPE_SYSTEM);
+
+   if (!_conn)
+     {
+        ERR("Could not get DBus SESSION bus: %m");
+        return EINA_FALSE;
+     }
+
    if (!wl_global_create(cdata->wl.disp, &tizen_window_screen_interface, 1,
                          cdata, _e_tizen_window_screen_cb_bind))
      {
-        ERR("Could not add tizen_policy to wayland globals: %m");
+        ERR("Could not add tizen_window_screen to wayland globals: %m");
         return EINA_FALSE;
      }
 
@@ -193,6 +322,12 @@ e_devicemgr_window_screen_init(void)
 void
 e_devicemgr_window_screen_fini(void)
 {
+   if (_conn)
+     {
+        eldbus_connection_unref(_conn);
+        _conn = NULL;
+     }
+
    eina_list_free(_window_screen_modes);
    E_FREE_LIST(_hooks, e_client_hook_del);
    E_FREE_LIST(_handlers, ecore_event_handler_del);
