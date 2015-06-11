@@ -1,3 +1,4 @@
+#define E_COMP_WL
 #include <e.h>
 #include <Ecore_Drm.h>
 #include <xf86drm.h>
@@ -222,6 +223,8 @@ _e_devicemgr_drm_fd_get(void)
 int
 e_devicemgr_drm_init(void)
 {
+   drmVersionPtr drm_info;
+
    if (!getenv("ECORE_DRM_DEVICE_USER_HANDLER"))
       return 1;
 
@@ -238,7 +241,16 @@ e_devicemgr_drm_init(void)
                                _e_devicemgr_drm_cb_event, NULL, NULL, NULL);
    EINA_SAFETY_ON_NULL_RETURN_VAL(drm_hdlr, 0);
 
-   e_config->use_hw_underlay = EINA_TRUE;
+   drm_info = drmGetVersion(e_devmgr_drm_fd);
+   DBG("drm name: %s", drm_info->name);
+
+   if (drm_info->name && !strncmp (drm_info->name, "exynos", 6))
+     {
+        e_comp->wl_comp_data->available_hw_accel.underlay = EINA_TRUE;
+        DBG("enable HW underlay");
+        e_comp->wl_comp_data->available_hw_accel.scaler = EINA_TRUE;
+        DBG("enable HW scaler");
+     }
 
    return 1;
 }
