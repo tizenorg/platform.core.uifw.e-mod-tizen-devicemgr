@@ -55,16 +55,16 @@ typedef struct _E_Devmgr_Buf
    /* for tizen_buffer */
    struct wl_listener buffer_destroy_listener;
 
-   struct wl_list convert_info;
+   Eina_List *convert_info;
    Eina_Bool showing;         /* now showing or now waiting to show. */
 
    uint fb_id;      /* fb_id of mbuf */
 
-   struct wl_list free_funcs;
+   Eina_List *free_funcs;
 
    Eina_Bool secure;
 
-   struct wl_list valid_link;   /* to check valid */
+   Eina_List *valid_link;   /* to check valid */
    uint stamp;
    uint ref_cnt;
    char *func;
@@ -97,7 +97,7 @@ void         e_devmgr_buffer_free_func_del  (E_Devmgr_Buf *mbuf, MBuf_Free_Func 
 #define e_devmgr_buffer_free(b)   _e_devmgr_buffer_free(b,__FUNCTION__)
 #define MBUF_IS_VALID(b)       _e_devmgr_buffer_valid(b,__FUNCTION__)
 #define MSTAMP(b)            ((b)?(b)->stamp:0)
-#define MBUF_IS_CONVERTING(b)       (!wl_list_empty (&((b)->convert_info)))
+#define MBUF_IS_CONVERTING(b)       (eina_list_nth((b)->convert_info, 0)?EINA_TRUE:EINA_FALSE)
 
 uint e_devmgr_buffer_get_mills(void);
 void e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *file, Eina_Bool raw);

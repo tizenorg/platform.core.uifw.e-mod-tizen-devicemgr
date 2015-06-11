@@ -26,17 +26,10 @@ typedef enum
    CVT_TYPE_MAX,
 } E_Devmgr_CvtType;
 
-typedef struct _ConvertInfo
-{
-   void *cvt;
-   struct wl_list link;
-} ConvertInfo;
-
 typedef struct _E_Devmgr_CvtFuncData
 {
    CvtFunc  func;
    void    *data;
-   struct wl_list   link;
 } E_Devmgr_CvtFuncData;
 
 typedef struct _E_Devmgr_CvtBuf
@@ -51,8 +44,6 @@ typedef struct _E_Devmgr_CvtBuf
    E_Devmgr_Cvt *cvt;
    E_Comp_Wl_Buffer_Ref buffer_ref;
    struct wl_listener buffer_destroy_listener;
-
-   struct wl_list link;
 } E_Devmgr_CvtBuf;
 
 struct _E_Devmgr_Cvt
@@ -63,9 +54,9 @@ struct _E_Devmgr_Cvt
 
    E_Devmgr_Cvt_Prop props[CVT_TYPE_MAX];
 
-   struct wl_list func_datas;
-   struct wl_list src_bufs;
-   struct wl_list dst_bufs;
+   Eina_List *func_datas;
+   Eina_List *src_bufs;
+   Eina_List *dst_bufs;
 
 #if INCREASE_NUM
    int src_index;
@@ -74,40 +65,24 @@ struct _E_Devmgr_Cvt
 
    Eina_Bool started;
    Eina_Bool first_event;
-
-   struct wl_list   link;
 };
 
-static struct wl_list cvt_list;
-
-static void
-init_list(void)
-{
-   static Eina_Bool inited = EINA_FALSE;
-
-   if (inited)
-     return;
-
-   wl_list_init(&cvt_list);
-
-   inited = EINA_TRUE;
-}
+static Eina_List *cvt_list;
 
 static E_Devmgr_Cvt*
 find_cvt(uint stamp)
 {
-   E_Devmgr_Cvt *cur = NULL, *next = NULL;
+   E_Devmgr_Cvt *cvt;
+   Eina_List *l;
 
-   init_list();
+   if (!cvt_list)
+     return NULL;
 
-   if (cvt_list.next != NULL)
-     {
-        wl_list_for_each_safe(cur, next, &cvt_list, link)
-         {
-            if (cur->stamp == stamp)
-              return cur;
-         }
-     }
+   EINA_LIST_FOREACH(cvt_list, l, cvt)
+    {
+       if (cvt->stamp == stamp)
+         return cvt;
+    }
 
    return NULL;
 }
@@ -151,36 +126,23 @@ fill_config(E_Devmgr_CvtType type, E_Devmgr_Cvt_Prop *prop, struct drm_exynos_ip
 static Eina_Bool
 set_mbuf_converting(E_Devmgr_Buf *mbuf, E_Devmgr_Cvt *cvt, Eina_Bool converting)
 {
+   E_Devmgr_Cvt *temp;
+
    if (!converting)
      {
-        ConvertInfo *cur = NULL, *next = NULL;
-        wl_list_for_each_safe(cur, next, &mbuf->convert_info, link)
-          {
-             if (cur->cvt == (void*)cvt)
-               {
-                  wl_list_remove(&cur->link);
-                  free(cur);
-                  return EINA_TRUE;
-               }
-          }
+        mbuf->convert_info = eina_list_remove(mbuf->convert_info, cvt);
         return EINA_TRUE;
      }
    else
      {
-       ConvertInfo *info = NULL, *next = NULL;
-       wl_list_for_each_safe(info, next, &mbuf->convert_info, link)
-         {
-            if (info->cvt == (void*)cvt)
-              {
-                 ERR("failed: %d already converting %d.", cvt->stamp, mbuf->stamp);
-                 return EINA_FALSE;
-              }
-         }
-       info = calloc(1, sizeof(ConvertInfo));
-       EINA_SAFETY_ON_NULL_RETURN_VAL(info, EINA_FALSE);
-       info->cvt = (void*)cvt;
-       wl_list_insert(&mbuf->convert_info, &info->link);
-       return EINA_TRUE;
+        temp = eina_list_data_find(mbuf->convert_info, cvt);
+        if (temp)
+          {
+             ERR("failed: %d already converting %d.", cvt->stamp, mbuf->stamp);
+             return EINA_FALSE;
+          }
+        mbuf->convert_info = eina_list_append(mbuf->convert_info, cvt);
+        return EINA_TRUE;
      }
 }
 
@@ -188,17 +150,17 @@ set_mbuf_converting(E_Devmgr_Buf *mbuf, E_Devmgr_Cvt *cvt, Eina_Bool converting)
 static void
 _printBufIndices(E_Devmgr_Cvt *cvt, E_Devmgr_CvtType type, char *str)
 {
-   struct wl_list *bufs;
-   E_Devmgr_CvtBuf *cur, *next;
+   Eina_List *bufs, *l;
+   E_Devmgr_CvtBuf *cbuf;
    char nums[128];
 
-   bufs = (type == CVT_TYPE_SRC) ? &cvt->src_bufs : &cvt->dst_bufs;
+   bufs = (type == CVT_TYPE_SRC) ? cvt->src_bufs : cvt->dst_bufs;
 
    snprintf(nums, 128, "bufs:");
 
-   wl_list_for_each_reverse_safe(cur, next, bufs, link)
+   EINA_LIST_FOREACH(bufs, l, cbuf)
      {
-       snprintf(nums, 128, "%s %d", nums, cur->index);
+       snprintf(nums, 128, "%s %d", nums, cbuf->index);
      }
 
    ErrorF("%s: cvt(%p) %s(%s). ", str, cvt,
@@ -233,18 +195,18 @@ _e_devmgr_cvt_get_empty_index(E_Devmgr_Cvt *cvt, E_Devmgr_CvtType type)
 
    return ret;
 #else
-   struct wl_list *bufs;
-   E_Devmgr_CvtBuf *cur = NULL, *next = NULL;
+   Eina_List *bufs, *l;
+   E_Devmgr_CvtBuf *cbuf;
    int ret = 0;
 
-   bufs = (type == CVT_TYPE_SRC) ? &cvt->src_bufs : &cvt->dst_bufs;
+   bufs = (type == CVT_TYPE_SRC) ? cvt->src_bufs : cvt->dst_bufs;
 
    while (1)
      {
         Eina_Bool found = EINA_FALSE;
-        wl_list_for_each_safe(cur, next, bufs, link)
+        EINA_LIST_FOREACH(bufs, l, cbuf)
           {
-             if (ret == cur->index)
+             if (ret == cbuf->index)
                {
                   found = EINA_TRUE;
                   break;
@@ -262,15 +224,15 @@ _e_devmgr_cvt_get_empty_index(E_Devmgr_Cvt *cvt, E_Devmgr_CvtType type)
 static E_Devmgr_CvtBuf*
 _e_devmgr_cvt_find_buf(E_Devmgr_Cvt *cvt, E_Devmgr_CvtType type, int index)
 {
-   struct wl_list *bufs;
-   E_Devmgr_CvtBuf *cur = NULL, *next = NULL;
+   Eina_List *bufs, *l;
+   E_Devmgr_CvtBuf *cbuf;
 
-   bufs = (type == CVT_TYPE_SRC) ? &cvt->src_bufs : &cvt->dst_bufs;
+   bufs = (type == CVT_TYPE_SRC) ? cvt->src_bufs : cvt->dst_bufs;
 
-   wl_list_for_each_safe(cur, next, bufs, link)
+   EINA_LIST_FOREACH(bufs, l, cbuf)
      {
-        if (index == cur->index)
-          return cur;
+        if (index == cbuf->index)
+          return cbuf;
      }
 
    ERR("cvt(%p), type(%d), index(%d) not found.", cvt, type, index);
@@ -282,7 +244,6 @@ static Eina_Bool
 _e_devmgr_cvt_queue(E_Devmgr_Cvt *cvt, E_Devmgr_CvtBuf *cbuf)
 {
    struct drm_exynos_ipp_queue_buf buf = {0,};
-   struct wl_list *bufs;
    int i;
    int index;
 
@@ -306,8 +267,10 @@ _e_devmgr_cvt_queue(E_Devmgr_Cvt *cvt, E_Devmgr_CvtBuf *cbuf)
         return EINA_FALSE;
      }
 
-   bufs = (cbuf->type == CVT_TYPE_SRC) ? &cvt->src_bufs : &cvt->dst_bufs;
-   wl_list_insert(bufs, &cbuf->link);
+   if (cbuf->type == CVT_TYPE_SRC)
+     cvt->src_bufs = eina_list_append(cvt->src_bufs, cbuf);
+   else
+     cvt->dst_bufs = eina_list_append(cvt->dst_bufs, cbuf);
 
    if (cbuf->mbuf->type == TYPE_TB && cbuf->mbuf->b.tizen_buffer->buffer)
      {
@@ -375,7 +338,10 @@ _e_devmgr_cvt_dequeued(E_Devmgr_Cvt *cvt, E_Devmgr_CvtType type, int index)
    DBG("cvt(%p) type(%d) index(%d) mbuf(%p) converting(%d)",
        cvt, type, index, cbuf->mbuf, MBUF_IS_CONVERTING(cbuf->mbuf));
 
-   wl_list_remove(&cbuf->link);
+   if (cbuf->type == CVT_TYPE_SRC)
+     cvt->src_bufs = eina_list_remove(cvt->src_bufs, cbuf);
+   else
+     cvt->dst_bufs = eina_list_remove(cvt->dst_bufs, cbuf);
 
    if (cbuf->mbuf->type == TYPE_TB)
      {
@@ -399,23 +365,25 @@ _e_devmgr_cvt_dequeued(E_Devmgr_Cvt *cvt, E_Devmgr_CvtType type, int index)
 static void
 _e_devmgr_cvt_dequeue_all(E_Devmgr_Cvt *cvt)
 {
-   E_Devmgr_CvtBuf *cur = NULL, *next = NULL;
+   E_Devmgr_CvtBuf *cbuf;
+   Eina_List *l, *ll;
 
-   wl_list_for_each_safe(cur, next, &cvt->src_bufs, link)
-     _e_devmgr_cvt_dequeue(cvt, cur);
-   wl_list_for_each_safe(cur, next, &cvt->dst_bufs, link)
-     _e_devmgr_cvt_dequeue(cvt, cur);
+   EINA_LIST_FOREACH_SAFE(cvt->src_bufs, l, ll, cbuf)
+     _e_devmgr_cvt_dequeue(cvt, cbuf);
+   EINA_LIST_FOREACH_SAFE(cvt->dst_bufs, l, ll, cbuf)
+     _e_devmgr_cvt_dequeue(cvt, cbuf);
 }
 
 static void
 _e_devmgr_cvt_dequeued_all(E_Devmgr_Cvt *cvt)
 {
-   E_Devmgr_CvtBuf *cur = NULL, *next = NULL;
+   E_Devmgr_CvtBuf *cbuf;
+   Eina_List *l, *ll;
 
-   wl_list_for_each_safe(cur, next, &cvt->src_bufs, link)
-     _e_devmgr_cvt_dequeued(cvt, EXYNOS_DRM_OPS_SRC, cur->index);
-   wl_list_for_each_safe(cur, next, &cvt->dst_bufs, link)
-     _e_devmgr_cvt_dequeued(cvt, EXYNOS_DRM_OPS_DST, cur->index);
+   EINA_LIST_FOREACH_SAFE(cvt->src_bufs, l, ll, cbuf)
+     _e_devmgr_cvt_dequeued(cvt, EXYNOS_DRM_OPS_SRC, cbuf->index);
+   EINA_LIST_FOREACH_SAFE(cvt->dst_bufs, l, ll, cbuf)
+     _e_devmgr_cvt_dequeued(cvt, EXYNOS_DRM_OPS_DST, cbuf->index);
 }
 
 static void
@@ -459,7 +427,7 @@ _e_devmgr_cvt_ipp_handler(unsigned int prop_id, unsigned int *buf_idx,
    E_Devmgr_Cvt *cvt = (E_Devmgr_Cvt *)data;
    E_Devmgr_CvtBuf *src_cbuf, *dst_cbuf;
    E_Devmgr_Buf *src_vbuf, *dst_vbuf;
-   E_Devmgr_CvtFuncData *curr = NULL, *next = NULL;
+   E_Devmgr_CvtFuncData *func_data;
 
    EINA_SAFETY_ON_NULL_RETURN(buf_idx);
 
@@ -479,12 +447,13 @@ _e_devmgr_cvt_ipp_handler(unsigned int prop_id, unsigned int *buf_idx,
 #endif
 
 #if DEQUEUE_FORCE
-   E_Devmgr_CvtBuf *cur = NULL, *prev = NULL;
+   E_Devmgr_CvtBuf *cbuf;
+   Eina_List *l;
 
-   wl_list_for_each_reverse_safe(cur, prev, &cvt->src_bufs, link)
+   EINA_LIST_FOREACH(cvt->src_bufs, l, cbuf)
      {
-        if (buf_idx[EXYNOS_DRM_OPS_SRC] != cur->index)
-          ERR("cvt(%p) event(%d,%d) has been skipped!! ", cvt, cur->index, cur->index);
+        if (buf_idx[EXYNOS_DRM_OPS_SRC] != cbuf->index)
+          ERR("cvt(%p) event(%d) has been skipped!! ", cvt, cbuf->index);
         else
             break;
      }
@@ -514,10 +483,10 @@ _e_devmgr_cvt_ipp_handler(unsigned int prop_id, unsigned int *buf_idx,
         cvt->first_event = EINA_TRUE;
      }
 
-   wl_list_for_each_safe(curr, next, &cvt->func_datas, link)
+   EINA_LIST_FOREACH(cvt->func_datas, l, func_data)
      {
-        if (curr->func)
-          curr->func(cvt, src_vbuf, dst_vbuf, curr->data);
+        if (func_data->func)
+          func_data->func(cvt, src_vbuf, dst_vbuf, func_data->data);
      }
 
    _e_devmgr_cvt_dequeued(cvt, EXYNOS_DRM_OPS_SRC, buf_idx[EXYNOS_DRM_OPS_SRC]);
@@ -587,8 +556,6 @@ e_devmgr_cvt_create(void)
    E_Devmgr_Cvt *cvt;
    uint stamp = e_devmgr_buffer_get_mills();
 
-   init_list();
-
    while(find_cvt(stamp))
      stamp++;
 
@@ -599,13 +566,9 @@ e_devmgr_cvt_create(void)
 
    cvt->prop_id = -1;
 
-   wl_list_init(&cvt->func_datas);
-   wl_list_init(&cvt->src_bufs);
-   wl_list_init(&cvt->dst_bufs);
-
    DBG("cvt(%p) stamp(%d)", cvt, stamp);
 
-   wl_list_insert(&cvt_list, &cvt->link);
+   cvt_list = eina_list_append(cvt_list, cvt);
 
    e_devicemgr_drm_ipp_handler_add(_e_devmgr_cvt_ipp_handler, cvt);
 
@@ -615,20 +578,17 @@ e_devmgr_cvt_create(void)
 void
 e_devmgr_cvt_destroy(E_Devmgr_Cvt *cvt)
 {
-   E_Devmgr_CvtFuncData *cur = NULL, *next = NULL;
+   E_Devmgr_CvtFuncData *func_data;
 
    if (!cvt)
      return;
 
    _e_devmgr_cvt_stop(cvt);
 
-   wl_list_remove(&cvt->link);
+   cvt_list = eina_list_remove(cvt_list, cvt);
 
-   wl_list_for_each_safe(cur, next, &cvt->func_datas, link)
-     {
-       wl_list_remove(&cur->link);
-       free(cur);
-     }
+   EINA_LIST_FREE(cvt->func_datas, func_data)
+     free(func_data);
 
    e_devicemgr_drm_ipp_handler_del(_e_devmgr_cvt_ipp_handler, cvt);
 
@@ -798,7 +758,7 @@ e_devmgr_cvt_cb_add(E_Devmgr_Cvt *cvt, CvtFunc func, void *data)
    func_data = calloc(1, sizeof(E_Devmgr_CvtFuncData));
    EINA_SAFETY_ON_NULL_RETURN_VAL(func_data, EINA_FALSE);
 
-   wl_list_insert(&cvt->func_datas, &func_data->link);
+   cvt->func_datas = eina_list_append(cvt->func_datas, func_data);
 
    func_data->func = func;
    func_data->data = data;
@@ -809,17 +769,18 @@ e_devmgr_cvt_cb_add(E_Devmgr_Cvt *cvt, CvtFunc func, void *data)
 void
 e_devmgr_cvt_cb_del(E_Devmgr_Cvt *cvt, CvtFunc func, void *data)
 {
-   E_Devmgr_CvtFuncData *cur = NULL, *next = NULL;
+   E_Devmgr_CvtFuncData *func_data;
+   Eina_List *l, *ll;
 
    EINA_SAFETY_ON_NULL_RETURN(cvt);
    EINA_SAFETY_ON_NULL_RETURN(func);
 
-   wl_list_for_each_safe(cur, next, &cvt->func_datas, link)
+   EINA_LIST_FOREACH_SAFE(cvt->func_datas, l, ll, func_data)
      {
-        if (cur->func == func && cur->data == data)
+        if (func_data->func == func && func_data->data == data)
           {
-             wl_list_remove(&cur->link);
-             free(cur);
+             cvt->func_datas = eina_list_remove_list(cvt->func_datas, l);
+             free(func_data);
           }
      }
 }

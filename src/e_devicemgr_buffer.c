@@ -27,7 +27,6 @@ typedef struct _MBufFreeFuncInfo
 {
    MBuf_Free_Func  func;
    void             *data;
-   struct wl_list  link;
 } MBufFreeFuncInfo;
 
 typedef struct _ColorTable
@@ -49,7 +48,7 @@ static ColorTable color_table[] =
    { TIZEN_BUFFER_POOL_FORMAT_UYVY,      TYPE_YUV422 },
 };
 
-static struct wl_list mbuf_lists;
+static Eina_List *mbuf_lists;
 
 static uint
 get_image_attrs(uint drmfmt, int *w, int *h, uint *pitches, uint *offsets, uint *lengths)
@@ -123,17 +122,6 @@ get_image_attrs(uint drmfmt, int *w, int *h, uint *pitches, uint *offsets, uint 
    }
 
    return size;
-}
-
-static void
-_e_devmgr_mbuf_list_init(void)
-{
-   static Eina_Bool init = EINA_FALSE;
-   if (!init)
-     {
-        wl_list_init(&mbuf_lists);
-        init = EINA_TRUE;
-     }
 }
 
 static tbm_bo
@@ -220,17 +208,16 @@ e_devmgr_buffer_color_type(uint drmfmt)
 static E_Devmgr_Buf*
 _find_mbuf(uint stamp)
 {
-   E_Devmgr_Buf *cur = NULL, *next = NULL;
+   E_Devmgr_Buf *mbuf;
+   Eina_List *l;
 
-   _e_devmgr_mbuf_list_init();
-
-   if (!mbuf_lists.next)
+   if (!mbuf_lists)
      return NULL;
 
-   wl_list_for_each_safe(cur, next, &mbuf_lists, valid_link)
+   EINA_LIST_FOREACH(mbuf_lists, l, mbuf)
      {
-        if (cur->stamp == stamp)
-          return cur;
+        if (mbuf->stamp == stamp)
+          return mbuf;
      }
 
    return NULL;
@@ -286,11 +273,7 @@ _e_devmgr_buffer_create(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char
 
    mbuf->secure = secure;
 
-   wl_list_init(&mbuf->convert_info);
-   wl_list_init(&mbuf->free_funcs);
-
-   _e_devmgr_mbuf_list_init();
-   wl_list_insert(&mbuf_lists, &mbuf->valid_link);
+   mbuf_lists = eina_list_append(mbuf_lists, mbuf);
 
    stamp = e_devmgr_buffer_get_mills();
    while (_find_mbuf(stamp))
@@ -358,11 +341,7 @@ _e_devmgr_buffer_create_ext(uint handle, int width, int height, uint format, con
    mbuf->type = TYPE_EXT;
    mbuf->handles[0] = handle;
 
-   wl_list_init(&mbuf->convert_info);
-   wl_list_init(&mbuf->free_funcs);
-
-   _e_devmgr_mbuf_list_init();
-   wl_list_insert(&mbuf_lists, &mbuf->valid_link);
+   mbuf_lists = eina_list_append(mbuf_lists, mbuf);
 
    stamp = e_devmgr_buffer_get_mills();
    while(_find_mbuf(stamp))
@@ -420,11 +399,7 @@ _e_devmgr_buffer_alloc_fb(int width, int height, Eina_Bool secure, const char *f
 
    mbuf->secure = secure;
 
-   wl_list_init(&mbuf->convert_info);
-   wl_list_init(&mbuf->free_funcs);
-
-   _e_devmgr_mbuf_list_init();
-   wl_list_insert(&mbuf_lists, &mbuf->valid_link);
+   mbuf_lists = eina_list_append(mbuf_lists, mbuf);
 
    stamp = e_devmgr_buffer_get_mills();
    while(_find_mbuf(stamp))
@@ -476,7 +451,8 @@ _e_devmgr_buffer_unref(E_Devmgr_Buf *mbuf, const char *func)
 void
 _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func)
 {
-   MBufFreeFuncInfo *cur = NULL, *next = NULL;
+   MBufFreeFuncInfo *info;
+   Eina_List *l, *ll;
    int i;
 
    if (!mbuf)
@@ -493,14 +469,13 @@ _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func)
         mbuf->buffer_destroy_listener.notify = NULL;
      }
 
-
-   wl_list_for_each_safe(cur, next, &mbuf->free_funcs, link)
+   EINA_LIST_FOREACH_SAFE(mbuf->free_funcs, l, ll, info)
      {
         /* call before tmb_bo_unref and drmModeRmFB. */
-        if (cur->func)
-            cur->func(mbuf, cur->data);
-        wl_list_remove(&cur->link);
-        free(cur);
+        if (info->func)
+            info->func(mbuf, info->data);
+        mbuf->free_funcs = eina_list_remove_list(mbuf->free_funcs, l);
+        free(info);
      }
 
    for (i = 0; i < 4; i++)
@@ -515,7 +490,7 @@ _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func)
         drmModeRmFB(e_devmgr_drm_fd, mbuf->fb_id);
      }
 
-   wl_list_remove(&mbuf->valid_link);
+   mbuf_lists = eina_list_remove(mbuf_lists, mbuf);
 
    DBG("%d freed: %s", mbuf->stamp, func);
 
@@ -535,16 +510,15 @@ e_devmgr_buffer_clear(E_Devmgr_Buf *mbuf)
 Eina_Bool
 _e_devmgr_buffer_valid(E_Devmgr_Buf *mbuf, const char *func)
 {
-   E_Devmgr_Buf *cur = NULL, *next = NULL;
-
-   _e_devmgr_mbuf_list_init();
+   E_Devmgr_Buf *temp;
+   Eina_List *l;
 
    MBUF_RETURN_VAL_IF_FAIL(mbuf != NULL, EINA_FALSE);
    MBUF_RETURN_VAL_IF_FAIL(mbuf->stamp != 0, EINA_FALSE);
 
-   wl_list_for_each_safe(cur, next, &mbuf_lists, valid_link)
+   EINA_LIST_FOREACH(mbuf_lists, l, temp)
      {
-        if (cur->stamp == mbuf->stamp)
+        if (temp->stamp == mbuf->stamp)
             return EINA_TRUE;
      }
 
@@ -554,12 +528,13 @@ _e_devmgr_buffer_valid(E_Devmgr_Buf *mbuf, const char *func)
 static MBufFreeFuncInfo*
 _e_devmgr_buffer_free_func_find(E_Devmgr_Buf *mbuf, MBuf_Free_Func func, void *data)
 {
-   MBufFreeFuncInfo *cur = NULL, *next = NULL;
+   MBufFreeFuncInfo *info;
+   Eina_List *l;
 
-   wl_list_for_each_safe(cur, next, &mbuf->free_funcs, link)
+   EINA_LIST_FOREACH(mbuf->free_funcs, l, info)
      {
-        if (cur->func == func && cur->data == data)
-            return cur;
+        if (info->func == func && info->data == data)
+            return info;
      }
 
    return NULL;
@@ -583,7 +558,7 @@ e_devmgr_buffer_free_func_add(E_Devmgr_Buf *mbuf, MBuf_Free_Func func, void *dat
    info->func = func;
    info->data = data;
 
-   wl_list_insert(&mbuf->free_funcs, &info->link);
+   mbuf->free_funcs = eina_list_append(mbuf->free_funcs, info);
 }
 
 void
@@ -598,7 +573,7 @@ e_devmgr_buffer_free_func_del(E_Devmgr_Buf *mbuf, MBuf_Free_Func func, void *dat
    if (!info)
      return;
 
-   wl_list_remove(&info->link);
+   mbuf->free_funcs = eina_list_remove(mbuf->free_funcs, info);
 
    free(info);
 }
