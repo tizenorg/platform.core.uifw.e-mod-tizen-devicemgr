@@ -61,12 +61,12 @@ static uint mirror_format_table[] =
 
 #define NUM_MIRROR_FORMAT   (sizeof(mirror_format_table) / sizeof(mirror_format_table[0]))
 
-static void _e_mirror_destroy(E_Mirror *mirror);
-static void _e_mirror_cvt_destroy(E_Mirror *mirror);
-static void _e_mirror_buffer_dequeue(E_Mirror_Buffer *buffer);
+static void _e_tz_screenmirror_destroy(E_Mirror *mirror);
+static void _e_tz_screenmirror_cvt_destroy(E_Mirror *mirror);
+static void _e_tz_screenmirror_buffer_dequeue(E_Mirror_Buffer *buffer);
 
 static void
-_e_mirror_center_rect (int src_w, int src_h, int dst_w, int dst_h, Eina_Rectangle *fit)
+_e_tz_screenmirror_center_rect (int src_w, int src_h, int dst_w, int dst_h, Eina_Rectangle *fit)
 {
    float rw, rh;
 
@@ -100,7 +100,7 @@ _e_mirror_center_rect (int src_w, int src_h, int dst_w, int dst_h, Eina_Rectangl
 }
 
 static Eina_Bool
-_e_mirror_crtc_info_get(E_Mirror *mirror)
+_e_tz_screenmirror_crtc_info_get(E_Mirror *mirror)
 {
    E_Comp_Wl_Output *output = wl_resource_get_user_data(mirror->output);
    drmModeResPtr mode_res;
@@ -129,7 +129,7 @@ _e_mirror_crtc_info_get(E_Mirror *mirror)
 }
 
 static Ecore_Drm_Output*
-_e_mirror_drm_output_find(unsigned int crtc_id)
+_e_tz_screenmirror_drm_output_find(unsigned int crtc_id)
 {
    Ecore_Drm_Device *dev;
    Ecore_Drm_Output *output;
@@ -145,7 +145,7 @@ _e_mirror_drm_output_find(unsigned int crtc_id)
 }
 
 static void
-_e_mirror_watch_vblank(E_Mirror *mirror)
+_e_tz_screenmirror_watch_vblank(E_Mirror *mirror)
 {
    uint curr_msc;
 
@@ -175,14 +175,14 @@ _e_mirror_watch_vblank(E_Mirror *mirror)
 }
 
 static void
-_e_mirror_src_buffer_cb_destroy(E_Devmgr_Buf *mbuf, void *data)
+_e_tz_screenmirror_src_buffer_cb_destroy(E_Devmgr_Buf *mbuf, void *data)
 {
    E_Mirror *mirror = (E_Mirror*)data;
    mirror->src_buffer_list = eina_list_remove(mirror->src_buffer_list, mbuf);
 }
 
 static E_Devmgr_Buf*
-_e_mirror_src_buffer_get(E_Mirror *mirror)
+_e_tz_screenmirror_src_buffer_get(E_Mirror *mirror)
 {
    Ecore_Drm_Output *output;
    E_Devmgr_Buf *mbuf;
@@ -190,7 +190,7 @@ _e_mirror_src_buffer_get(E_Mirror *mirror)
    uint handle, format;
    int w, h;
 
-   output = _e_mirror_drm_output_find(mirror->crtc_id);
+   output = _e_tz_screenmirror_drm_output_find(mirror->crtc_id);
 
    /* TODO: should find the better way to find current framebuffer */
    ecore_drm_output_current_fb_info_get(output, &handle, &w, &h, &format);
@@ -202,21 +202,21 @@ _e_mirror_src_buffer_get(E_Mirror *mirror)
    mbuf = e_devmgr_buffer_create_ext(handle, w, h, format);
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
-   e_devmgr_buffer_free_func_add(mbuf, _e_mirror_src_buffer_cb_destroy, mirror);
+   e_devmgr_buffer_free_func_add(mbuf, _e_tz_screenmirror_src_buffer_cb_destroy, mirror);
    mirror->src_buffer_list = eina_list_append(mirror->src_buffer_list, mbuf);
 
    return mbuf;
 }
 
 static void
-_e_mirror_dst_buffer_cb_destroy(E_Devmgr_Buf *mbuf, void *data)
+_e_tz_screenmirror_dst_buffer_cb_destroy(E_Devmgr_Buf *mbuf, void *data)
 {
    E_Mirror *mirror = (E_Mirror*)data;
    mirror->dst_buffer_list = eina_list_remove(mirror->dst_buffer_list, mbuf);
 }
 
 static E_Devmgr_Buf*
-_e_mirror_dst_buffer_get(E_Mirror_Buffer *buffer)
+_e_tz_screenmirror_dst_buffer_get(E_Mirror_Buffer *buffer)
 {
    E_Mirror *mirror = buffer->mirror;
    E_Drm_Buffer *drm_buffer = e_drm_buffer_get(buffer->resource);
@@ -233,14 +233,14 @@ _e_mirror_dst_buffer_get(E_Mirror_Buffer *buffer)
    mbuf = e_devmgr_buffer_create(tizen_buffer, EINA_FALSE);
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
-   e_devmgr_buffer_free_func_add(mbuf, _e_mirror_dst_buffer_cb_destroy, mirror);
+   e_devmgr_buffer_free_func_add(mbuf, _e_tz_screenmirror_dst_buffer_cb_destroy, mirror);
    mirror->dst_buffer_list = eina_list_append(mirror->dst_buffer_list, mbuf);
 
    return mbuf;
 }
 
 static void
-_e_mirror_cvt_callback(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst, void *cvt_data)
+_e_tz_screenmirror_cvt_callback(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst, void *cvt_data)
 {
    E_Mirror *mirror = (E_Mirror*)cvt_data;
    E_Mirror_Buffer *buffer;
@@ -249,9 +249,9 @@ _e_mirror_cvt_callback(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst, 
    EINA_LIST_FOREACH(mirror->buffer_queue, l, buffer)
      if (dst->b.tizen_buffer->drm_buffer->resource == buffer->resource)
        {
-          _e_mirror_buffer_dequeue(buffer);
+          _e_tz_screenmirror_buffer_dequeue(buffer);
           if (mirror->destroy_mirror_after_oneshot)
-            _e_mirror_destroy(mirror);
+            _e_tz_screenmirror_destroy(mirror);
           break;
        }
 
@@ -266,7 +266,7 @@ _e_mirror_cvt_callback(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst, 
 }
 
 static Eina_Bool
-_e_mirror_cvt_create(E_Mirror_Buffer *buffer, E_Devmgr_Buf *src, E_Devmgr_Buf *dst)
+_e_tz_screenmirror_cvt_create(E_Mirror_Buffer *buffer, E_Devmgr_Buf *src, E_Devmgr_Buf *dst)
 {
    E_Mirror *mirror = buffer->mirror;
    E_Devmgr_Cvt_Prop sprop, dprop;
@@ -290,7 +290,7 @@ _e_mirror_cvt_create(E_Mirror_Buffer *buffer, E_Devmgr_Buf *src, E_Devmgr_Buf *d
    dprop.width = dst->width;
    dprop.height = dst->height;
    if (mirror->stretch == TIZEN_SCREENMIRROR_STRETCH_KEEP_RATIO)
-     _e_mirror_center_rect(src->width, src->height, dst->width, dst->height, &dprop.crop);
+     _e_tz_screenmirror_center_rect(src->width, src->height, dst->width, dst->height, &dprop.crop);
    else
      {
         dprop.crop.x = dprop.crop.y = 0;
@@ -301,17 +301,17 @@ _e_mirror_cvt_create(E_Mirror_Buffer *buffer, E_Devmgr_Buf *src, E_Devmgr_Buf *d
    if (!e_devmgr_cvt_property_set(mirror->cvt, &sprop, &dprop))
        goto failed;
 
-   e_devmgr_cvt_cb_add(mirror->cvt, _e_mirror_cvt_callback, mirror);
+   e_devmgr_cvt_cb_add(mirror->cvt, _e_tz_screenmirror_cvt_callback, mirror);
 
    return EINA_TRUE;
 
 failed:
-   _e_mirror_cvt_destroy(mirror);
+   _e_tz_screenmirror_cvt_destroy(mirror);
    return EINA_FALSE;
 }
 
 static void
-_e_mirror_cvt_destroy(E_Mirror *mirror)
+_e_tz_screenmirror_cvt_destroy(E_Mirror *mirror)
 {
    if (!mirror->cvt)
      return;
@@ -320,7 +320,7 @@ _e_mirror_cvt_destroy(E_Mirror *mirror)
 }
 
 static void
-_e_mirror_shm_dump(E_Mirror_Buffer *buffer)
+_e_tz_screenmirror_shm_dump(E_Mirror_Buffer *buffer)
 {
    E_Mirror *mirror = buffer->mirror;
    E_Comp_Wl_Output *output = wl_resource_get_user_data(mirror->output);
@@ -341,7 +341,7 @@ _e_mirror_shm_dump(E_Mirror_Buffer *buffer)
    data = wl_shm_buffer_get_data(shm_buffer);
 
    if (mirror->stretch == TIZEN_SCREENMIRROR_STRETCH_KEEP_RATIO)
-     _e_mirror_center_rect(output->w, output->h, width, height, &dst);
+     _e_tz_screenmirror_center_rect(output->w, output->h, width, height, &dst);
    else
      {
         dst.x = dst.y = 0;
@@ -361,19 +361,19 @@ _e_mirror_shm_dump(E_Mirror_Buffer *buffer)
 }
 
 static Eina_Bool
-_e_mirror_drm_dump(E_Mirror_Buffer *buffer)
+_e_tz_screenmirror_drm_dump(E_Mirror_Buffer *buffer)
 {
    E_Mirror *mirror = buffer->mirror;
    E_Devmgr_Buf *src, *dst;
 
-   src = _e_mirror_src_buffer_get(mirror);
+   src = _e_tz_screenmirror_src_buffer_get(mirror);
    EINA_SAFETY_ON_NULL_RETURN_VAL(src, EINA_FALSE);
 
-   dst = _e_mirror_dst_buffer_get(buffer);
+   dst = _e_tz_screenmirror_dst_buffer_get(buffer);
    EINA_SAFETY_ON_NULL_RETURN_VAL(dst, EINA_FALSE);
 
    if (!mirror->cvt)
-     if (!_e_mirror_cvt_create(buffer, src, dst))
+     if (!_e_tz_screenmirror_cvt_create(buffer, src, dst))
        return EINA_FALSE;
 
    if (!e_devmgr_cvt_convert(mirror->cvt, src, dst))
@@ -383,7 +383,7 @@ _e_mirror_drm_dump(E_Mirror_Buffer *buffer)
 }
 
 static void
-_e_mirror_dump(E_Mirror_Buffer *buffer)
+_e_tz_screenmirror_dump(E_Mirror_Buffer *buffer)
 {
    E_Mirror *mirror = buffer->mirror;
 
@@ -392,21 +392,21 @@ _e_mirror_dump(E_Mirror_Buffer *buffer)
    /* in case of wl_shm_buffer */
    if (wl_shm_buffer_get(buffer->resource))
      {
-        _e_mirror_shm_dump(buffer);
-        _e_mirror_buffer_dequeue(buffer);
+        _e_tz_screenmirror_shm_dump(buffer);
+        _e_tz_screenmirror_buffer_dequeue(buffer);
         if (mirror->destroy_mirror_after_oneshot)
-          _e_mirror_destroy(mirror);
+          _e_tz_screenmirror_destroy(mirror);
      }
    else if (e_drm_buffer_get(buffer->resource))
      {
-        /* If _e_mirror_drm_dump return FALSE, we dequeue buffer at now.
-         * Otherwise, _e_mirror_buffer_dequeue will be called in cvt callback
+        /* If _e_tz_screenmirror_drm_dump return FALSE, we dequeue buffer at now.
+         * Otherwise, _e_tz_screenmirror_buffer_dequeue will be called in cvt callback
          */
-        if (!_e_mirror_drm_dump(buffer))
+        if (!_e_tz_screenmirror_drm_dump(buffer))
           {
-            _e_mirror_buffer_dequeue(buffer);
+            _e_tz_screenmirror_buffer_dequeue(buffer);
             if (mirror->destroy_mirror_after_oneshot)
-              _e_mirror_destroy(mirror);
+              _e_tz_screenmirror_destroy(mirror);
           }
      }
    else
@@ -414,18 +414,18 @@ _e_mirror_dump(E_Mirror_Buffer *buffer)
 }
 
 static void
-_e_mirror_buffer_queue(E_Mirror_Buffer *buffer)
+_e_tz_screenmirror_buffer_queue(E_Mirror_Buffer *buffer)
 {
    E_Mirror *mirror = buffer->mirror;
 
    mirror->buffer_queue = eina_list_append(mirror->buffer_queue, buffer);
 
    if (mirror->started && !mirror->wait_vblank)
-     _e_mirror_watch_vblank(mirror);
+     _e_tz_screenmirror_watch_vblank(mirror);
 }
 
 static void
-_e_mirror_buffer_dequeue(E_Mirror_Buffer *buffer)
+_e_tz_screenmirror_buffer_dequeue(E_Mirror_Buffer *buffer)
 {
    E_Mirror *mirror = buffer->mirror;
 
@@ -445,7 +445,7 @@ _e_mirror_buffer_dequeue(E_Mirror_Buffer *buffer)
 }
 
 static void
-_e_mirror_buffer_cb_destroy(struct wl_listener *listener, void *data)
+_e_tz_screenmirror_buffer_cb_destroy(struct wl_listener *listener, void *data)
 {
    E_Mirror_Buffer *buffer = container_of(listener, E_Mirror_Buffer, destroy_listener);
 
@@ -453,18 +453,18 @@ _e_mirror_buffer_cb_destroy(struct wl_listener *listener, void *data)
      NEVER_GET_HERE();
 
    /* then, dequeue and send dequeue event */
-   _e_mirror_buffer_dequeue(buffer);
+   _e_tz_screenmirror_buffer_dequeue(buffer);
 
    free(buffer);
 }
 
 static E_Mirror_Buffer*
-_e_mirror_buffer_get(E_Mirror *mirror, struct wl_resource *resource)
+_e_tz_screenmirror_buffer_get(E_Mirror *mirror, struct wl_resource *resource)
 {
    E_Mirror_Buffer *buffer = NULL;
    struct wl_listener *listener;
 
-   listener = wl_resource_get_destroy_listener(resource, _e_mirror_buffer_cb_destroy);
+   listener = wl_resource_get_destroy_listener(resource, _e_tz_screenmirror_buffer_cb_destroy);
    if (listener)
      return container_of(listener, E_Mirror_Buffer, destroy_listener);
 
@@ -474,14 +474,14 @@ _e_mirror_buffer_get(E_Mirror *mirror, struct wl_resource *resource)
    buffer->mirror = mirror;
    buffer->resource = resource;
 
-   buffer->destroy_listener.notify = _e_mirror_buffer_cb_destroy;
+   buffer->destroy_listener.notify = _e_tz_screenmirror_buffer_cb_destroy;
    wl_resource_add_destroy_listener(resource, &buffer->destroy_listener);
 
    return buffer;
 }
 
 static void
-_e_mirror_vblank_handler(uint sequence, uint tv_sec, uint tv_usec, void *data)
+_e_tz_screenmirror_vblank_handler(uint sequence, uint tv_sec, uint tv_usec, void *data)
 {
    E_Mirror *mirror = data;
    E_Mirror_Buffer *buffer;
@@ -496,37 +496,37 @@ _e_mirror_vblank_handler(uint sequence, uint tv_sec, uint tv_usec, void *data)
    if (!buffer)
      return;
 
-   _e_mirror_dump(buffer);
+   _e_tz_screenmirror_dump(buffer);
 
-   _e_mirror_watch_vblank(mirror);
+   _e_tz_screenmirror_watch_vblank(mirror);
 }
 
 static void
-_e_mirror_cb_client_destroy(struct wl_listener *listener, void *data)
+_e_tz_screenmirror_cb_client_destroy(struct wl_listener *listener, void *data)
 {
    E_Mirror *mirror = container_of(listener, E_Mirror, client_destroy_listener);
 
-   _e_mirror_destroy(mirror);
+   _e_tz_screenmirror_destroy(mirror);
 }
 
 static E_Mirror*
-_e_mirror_create(struct wl_client *client)
+_e_tz_screenmirror_create(struct wl_client *client)
 {
    E_Mirror *mirror = E_NEW(E_Mirror, 1);
    EINA_SAFETY_ON_NULL_RETURN_VAL(mirror, NULL);
 
    mirror->stretch = TIZEN_SCREENMIRROR_STRETCH_KEEP_RATIO;
 
-   e_devicemgr_drm_vblank_handler_add(_e_mirror_vblank_handler, mirror);
+   e_devicemgr_drm_vblank_handler_add(_e_tz_screenmirror_vblank_handler, mirror);
 
-   mirror->client_destroy_listener.notify = _e_mirror_cb_client_destroy;
+   mirror->client_destroy_listener.notify = _e_tz_screenmirror_cb_client_destroy;
    wl_client_add_destroy_listener(client, &mirror->client_destroy_listener);
 
    return mirror;
 }
 
 static void
-_e_mirror_destroy(E_Mirror *mirror)
+_e_tz_screenmirror_destroy(E_Mirror *mirror)
 {
    E_Mirror_Buffer *buffer;
    Eina_List *l, *ll;
@@ -543,12 +543,12 @@ _e_mirror_destroy(E_Mirror *mirror)
 
    wl_resource_set_destructor(mirror->resource, NULL);
 
-   _e_mirror_cvt_destroy(mirror);
+   _e_tz_screenmirror_cvt_destroy(mirror);
 
-   e_devicemgr_drm_vblank_handler_del(_e_mirror_vblank_handler, mirror);
+   e_devicemgr_drm_vblank_handler_del(_e_tz_screenmirror_vblank_handler, mirror);
 
    EINA_LIST_FOREACH_SAFE(mirror->buffer_queue, l, ll, buffer)
-     _e_mirror_buffer_dequeue(buffer);
+     _e_tz_screenmirror_buffer_dequeue(buffer);
 
    EINA_LIST_FOREACH_SAFE(mirror->src_buffer_list, l, ll, mbuf)
      e_devmgr_buffer_unref(mbuf);
@@ -564,7 +564,7 @@ destroy_tz_screenmirror(struct wl_resource *resource)
 {
    E_Mirror *mirror = wl_resource_get_user_data(resource);
 
-   _e_mirror_destroy(mirror);
+   _e_tz_screenmirror_destroy(mirror);
 }
 
 static void
@@ -597,14 +597,14 @@ _e_tz_screenmirror_cb_queue(struct wl_client *client EINA_UNUSED, struct wl_reso
         return;
      }
 
-   buffer = _e_mirror_buffer_get(mirror, buffer_resource);
+   buffer = _e_tz_screenmirror_buffer_get(mirror, buffer_resource);
    if (!buffer)
      {
         wl_resource_post_no_memory(resource);
         return;
      }
 
-   _e_mirror_buffer_queue(buffer);
+   _e_tz_screenmirror_buffer_queue(buffer);
 }
 
 static void
@@ -620,11 +620,11 @@ _e_tz_screenmirror_cb_dequeue(struct wl_client *client EINA_UNUSED, struct wl_re
         return;
      }
 
-   buffer = _e_mirror_buffer_get(mirror, buffer_resource);
+   buffer = _e_tz_screenmirror_buffer_get(mirror, buffer_resource);
    if (!eina_list_data_find_list(mirror->buffer_queue, buffer))
      return;
 
-   _e_mirror_buffer_dequeue(buffer);
+   _e_tz_screenmirror_buffer_dequeue(buffer);
 }
 
 static void
@@ -639,7 +639,7 @@ _e_tz_screenmirror_cb_start(struct wl_client *client EINA_UNUSED, struct wl_reso
    if (!mirror->buffer_queue)
      return;
 
-   _e_mirror_watch_vblank(mirror);
+   _e_tz_screenmirror_watch_vblank(mirror);
 }
 
 static void
@@ -651,7 +651,7 @@ _e_tz_screenmirror_cb_stop(struct wl_client *client EINA_UNUSED, struct wl_resou
 
    mirror->started = EINA_FALSE;
 
-   _e_mirror_cvt_destroy(mirror);
+   _e_tz_screenmirror_cvt_destroy(mirror);
    tizen_screenmirror_send_stop(resource);
 }
 
@@ -674,7 +674,7 @@ _e_tz_screenshooter_get_screenmirror(struct wl_client *client,
    struct wl_resource *res;
    E_Mirror *mirror;
 
-   mirror = _e_mirror_create(client);
+   mirror = _e_tz_screenmirror_create(client);
    if (!mirror)
      {
         wl_resource_post_no_memory(resource);
@@ -684,7 +684,7 @@ _e_tz_screenshooter_get_screenmirror(struct wl_client *client,
    res = wl_resource_create(client, &tizen_screenmirror_interface, version, id);
    if (res == NULL)
      {
-        _e_mirror_destroy(mirror);
+        _e_tz_screenmirror_destroy(mirror);
         wl_client_post_no_memory(client);
         return;
      }
@@ -693,7 +693,7 @@ _e_tz_screenshooter_get_screenmirror(struct wl_client *client,
    mirror->shooter = resource;
    mirror->output = output;
 
-   _e_mirror_crtc_info_get(mirror);
+   _e_tz_screenmirror_crtc_info_get(mirror);
 
    wl_resource_set_implementation(res, &_e_tz_screenmirror_interface,
                                   mirror, destroy_tz_screenmirror);
@@ -744,7 +744,7 @@ _e_screenshooter_cb_shoot(struct wl_client *client,
         return;
      }
 
-   mirror = _e_mirror_create(client);
+   mirror = _e_tz_screenmirror_create(client);
    if (!mirror)
      {
         wl_resource_post_no_memory(resource);
@@ -756,18 +756,18 @@ _e_screenshooter_cb_shoot(struct wl_client *client,
    mirror->output = output_resource;
    mirror->destroy_mirror_after_oneshot = EINA_TRUE;
 
-   _e_mirror_crtc_info_get(mirror);
+   _e_tz_screenmirror_crtc_info_get(mirror);
 
-   buffer = _e_mirror_buffer_get(mirror, buffer_resource);
+   buffer = _e_tz_screenmirror_buffer_get(mirror, buffer_resource);
    if (!buffer)
      {
         wl_resource_post_no_memory(resource);
-        _e_mirror_destroy(mirror);
+        _e_tz_screenmirror_destroy(mirror);
         return;
      }
 
-   _e_mirror_buffer_queue(buffer);
-   _e_mirror_dump(buffer);
+   _e_tz_screenmirror_buffer_queue(buffer);
+   _e_tz_screenmirror_dump(buffer);
 }
 
 static const struct screenshooter_interface _e_screenshooter_interface =
