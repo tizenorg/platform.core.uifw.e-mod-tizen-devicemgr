@@ -764,6 +764,12 @@ _e_video_render(E_Video *video)
    drm_buffer = e_drm_buffer_get(buffer->resource);
    EINA_SAFETY_ON_NULL_RETURN(drm_buffer);
 
+   DBG("video buffer: %c%c%c%c %dx%d (%d,%d,%d) (%d,%d,%d) (%d,%d,%d)",
+       FOURCC_STR(drm_buffer->format), drm_buffer->width, drm_buffer->height,
+       drm_buffer->name[0], drm_buffer->name[1], drm_buffer->name[2],
+       drm_buffer->stride[0], drm_buffer->stride[1], drm_buffer->stride[2],
+       drm_buffer->offset[0], drm_buffer->offset[1], drm_buffer->offset[2]);
+
    tizen_buffer = drm_buffer->driver_buffer;
    EINA_SAFETY_ON_NULL_RETURN(tizen_buffer);
 

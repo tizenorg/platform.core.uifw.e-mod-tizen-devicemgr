@@ -609,6 +609,20 @@ e_devmgr_cvt_property_set(E_Devmgr_Cvt *cvt, E_Devmgr_Cvt_Prop *src, E_Devmgr_Cv
    EINA_SAFETY_ON_NULL_RETURN_VAL(src, EINA_FALSE);
    EINA_SAFETY_ON_NULL_RETURN_VAL(dst, EINA_FALSE);
 
+   DBG("cvt(%p) src('%c%c%c%c', '%c%c%c%c', %dx%d, %d,%d %dx%d, %d, %d&%d, %d, %d)",
+       cvt, FOURCC_STR(src->drmfmt), FOURCC_STR(src->drmfmt),
+       src->width, src->height,
+       src->crop.x, src->crop.y, src->crop.w, src->crop.h,
+       src->degree, src->hflip, src->vflip,
+       src->secure, src->csc_range);
+
+   DBG("cvt(%p) dst('%c%c%c%c', '%c%c%c%c',%dx%d, %d,%d %dx%d, %d, %d&%d, %d, %d)",
+       cvt, FOURCC_STR(dst->drmfmt), FOURCC_STR(dst->drmfmt),
+       dst->width, dst->height,
+       dst->crop.x, dst->crop.y, dst->crop.w, dst->crop.h,
+       dst->degree, dst->hflip, dst->vflip,
+       dst->secure, dst->csc_range);
+
    if (!e_devmgr_cvt_ensure_size(src, dst))
      return EINA_FALSE;
 
@@ -627,20 +641,6 @@ e_devmgr_cvt_property_set(E_Devmgr_Cvt *cvt, E_Devmgr_Cvt_Prop *src, E_Devmgr_Cv
    property.prop_id = cvt->prop_id;
    //    property.protect = dst->secure;
    property.range = dst->csc_range;
-
-   DBG("cvt(%p) src('%c%c%c%c', '%c%c%c%c', %dx%d, %d,%d %dx%d, %d, %d&%d, %d, %d)",
-       cvt, FOURCC_STR(src->drmfmt), FOURCC_STR(src->drmfmt),
-       src->width, src->height,
-       src->crop.x, src->crop.y, src->crop.w, src->crop.h,
-       src->degree, src->hflip, src->vflip,
-       src->secure, src->csc_range);
-
-   DBG("cvt(%p) dst('%c%c%c%c', '%c%c%c%c',%dx%d, %d,%d %dx%d, %d, %d&%d, %d, %d)",
-       cvt, FOURCC_STR(dst->drmfmt), FOURCC_STR(dst->drmfmt),
-       dst->width, dst->height,
-       dst->crop.x, dst->crop.y, dst->crop.w, dst->crop.h,
-       dst->degree, dst->hflip, dst->vflip,
-       dst->secure, dst->csc_range);
 
    cvt->prop_id = e_devicemgr_drm_ipp_set(&property);
    EINA_SAFETY_ON_FALSE_RETURN_VAL(cvt->prop_id >= 0, EINA_FALSE);

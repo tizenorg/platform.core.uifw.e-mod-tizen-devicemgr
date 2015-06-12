@@ -226,6 +226,12 @@ _e_tz_screenmirror_dst_buffer_get(E_Mirror_Buffer *buffer)
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(tizen_buffer, NULL);
 
+   DBG("capture buffer: %c%c%c%c %dx%d (%d,%d,%d) (%d,%d,%d) (%d,%d,%d)",
+       FOURCC_STR(drm_buffer->format), drm_buffer->width, drm_buffer->height,
+       drm_buffer->name[0], drm_buffer->name[1], drm_buffer->name[2],
+       drm_buffer->stride[0], drm_buffer->stride[1], drm_buffer->stride[2],
+       drm_buffer->offset[0], drm_buffer->offset[1], drm_buffer->offset[2]);
+
    EINA_LIST_FOREACH(mirror->dst_buffer_list, l, mbuf)
      if (mbuf->b.tizen_buffer == tizen_buffer)
        return mbuf;
