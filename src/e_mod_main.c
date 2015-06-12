@@ -60,9 +60,9 @@ e_modapi_init(E_Module *m)
      }
 
 #ifdef HAVE_WAYLAND_ONLY
-   if (!e_devicemgr_drm_init())
+   if (!e_devicemgr_window_screen_init())
      {
-        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_drm_init()..!\n", __FUNCTION__);
+        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_window_screen_init()..!\n", __FUNCTION__);
         return NULL;
      }
 
@@ -72,15 +72,9 @@ e_modapi_init(E_Module *m)
         return NULL;
      }
 
-   if (!e_devicemgr_video_init())
+   if (!e_devicemgr_drm_init())
      {
-        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_video_init()..!\n", __FUNCTION__);
-        return NULL;
-     }
-
-   if (!e_devicemgr_window_screen_init())
-     {
-        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_window_screen_init()..!\n", __FUNCTION__);
+        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_drm_init()..!\n", __FUNCTION__);
         return NULL;
      }
 
@@ -91,6 +85,12 @@ e_modapi_init(E_Module *m)
           SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_screenshooter_init()..!\n", __FUNCTION__);
           return NULL;
        }
+
+   if (!e_devicemgr_video_init())
+     {
+        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_video_init()..!\n", __FUNCTION__);
+        return NULL;
+     }
 #endif
 
    return m;
