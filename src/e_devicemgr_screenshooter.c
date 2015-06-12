@@ -317,6 +317,7 @@ _e_tz_screenmirror_cvt_destroy(E_Mirror *mirror)
      return;
 
    e_devmgr_cvt_destroy(mirror->cvt);
+   mirror->cvt = NULL;
 }
 
 static void
