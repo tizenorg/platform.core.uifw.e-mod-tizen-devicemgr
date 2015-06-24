@@ -41,6 +41,9 @@ static ColorTable color_table[] =
    { DRM_FORMAT_UYVY,      TYPE_YUV422 },
 };
 
+static void _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func);
+#define e_devmgr_buffer_free(b) _e_devmgr_buffer_free(b,__FUNCTION__)
+
 static Eina_List *mbuf_lists;
 
 static tbm_bo
@@ -142,14 +145,6 @@ _find_mbuf(uint stamp)
    return NULL;
 }
 
-static void
-_e_devmgr_buffer_cb_destroy(struct wl_listener *listener, void *data EINA_UNUSED)
-{
-   E_Devmgr_Buf *mbuf = container_of(listener, E_Devmgr_Buf, buffer_destroy_listener);
-
-   e_devmgr_buffer_free(mbuf);
-}
-
 E_Devmgr_Buf*
 _e_devmgr_buffer_create(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char *func)
 {
@@ -183,12 +178,6 @@ _e_devmgr_buffer_create(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char
 
    mbuf->type = TYPE_TB;
    mbuf->b.tizen_buffer = tizen_buffer;
-
-   if (tizen_buffer->buffer)
-     {
-        mbuf->buffer_destroy_listener.notify = _e_devmgr_buffer_cb_destroy;
-        wl_signal_add(&tizen_buffer->buffer->destroy_signal, &mbuf->buffer_destroy_listener);
-     }
 
    mbuf->secure = secure;
 
@@ -244,7 +233,7 @@ _e_devmgr_buffer_create_ext(uint handle, int width, int height, uint drmfmt, con
    EINA_SAFETY_ON_FALSE_RETURN_VAL(height > 0, NULL);
    if (drmfmt != DRM_FORMAT_ARGB8888 && drmfmt != DRM_FORMAT_XRGB8888)
      {
-        NEVER_GET_HERE();
+        ERR("not supported format: %c%c%c%c", FOURCC_STR(drmfmt));
         return NULL;
      }
 
@@ -365,7 +354,7 @@ _e_devmgr_buffer_unref(E_Devmgr_Buf *mbuf, const char *func)
      _e_devmgr_buffer_free(mbuf, func);
 }
 
-void
+static void
 _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func)
 {
    MBufFreeFuncInfo *info;
@@ -375,36 +364,31 @@ _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func)
    if (!mbuf)
      return;
 
+   /* make sure all operation is done */
    MBUF_RETURN_IF_FAIL(mbuf->ref_cnt == 0);
    MBUF_RETURN_IF_FAIL(_e_devmgr_buffer_valid(mbuf, func));
    MBUF_RETURN_IF_FAIL(!MBUF_IS_CONVERTING(mbuf));
    MBUF_RETURN_IF_FAIL(mbuf->showing == EINA_FALSE);
 
-   if (mbuf->buffer_destroy_listener.notify)
-     {
-        wl_list_remove(&mbuf->buffer_destroy_listener.link);
-        mbuf->buffer_destroy_listener.notify = NULL;
-     }
-
    EINA_LIST_FOREACH_SAFE(mbuf->free_funcs, l, ll, info)
      {
         /* call before tmb_bo_unref and drmModeRmFB. */
+        mbuf->free_funcs = eina_list_remove_list(mbuf->free_funcs, l);
         if (info->func)
             info->func(mbuf, info->data);
-        mbuf->free_funcs = eina_list_remove_list(mbuf->free_funcs, l);
         free(info);
-     }
-
-   for (i = 0; i < 4; i++)
-     {
-        if (mbuf->type == TYPE_BO && mbuf->b.bo[i])
-          tbm_bo_unref(mbuf->b.bo[i]);
      }
 
    if (mbuf->fb_id > 0)
      {
         DBG("mbuf(%d) fb_id(%d) removed. ", mbuf->stamp, mbuf->fb_id);
         drmModeRmFB(e_devmgr_drm_fd, mbuf->fb_id);
+     }
+
+   for (i = 0; i < 4; i++)
+     {
+        if (mbuf->type == TYPE_BO && mbuf->b.bo[i])
+          tbm_bo_unref(mbuf->b.bo[i]);
      }
 
    mbuf_lists = eina_list_remove(mbuf_lists, mbuf);

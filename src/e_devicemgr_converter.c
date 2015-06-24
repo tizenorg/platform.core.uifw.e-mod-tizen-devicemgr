@@ -171,7 +171,11 @@ _printBufIndices(E_Devmgr_Cvt *cvt, E_Devmgr_CvtType type, char *str)
 static void
 _e_devmgr_cvt_cb_tb_destroy(struct wl_listener *listener, void *data)
 {
-   NEVER_GET_HERE();
+   /* If this happens, client destroyes wl_buffer before it receives a wl_buffer
+    * release event. So, in this case, client should destroy wl_buffer after
+    * a release event.
+    */
+   ERR("** client needs to be improved more **");
 }
 
 static int

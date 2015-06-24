@@ -18,7 +18,6 @@ typedef struct _E_Video_Fb
 
    /* in case of non-converting */
    E_Comp_Wl_Buffer_Ref buffer_ref;
-   struct wl_listener buffer_destroy_listener;
 } E_Video_Fb;
 
 struct _E_Video
@@ -69,6 +68,8 @@ static uint video_format_table[] =
 static Eina_List *video_list;
 
 static void _e_video_destroy(E_Video *video);
+static void _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb);
+static void _e_video_frame_buffer_destroy(E_Video_Fb *vfb);
 
 static Eina_Bool
 check_hw_restriction(int crtc_w, int buf_w,
@@ -170,7 +171,7 @@ buffer_transform(int width, int height, uint32_t transform, int32_t scale,
 }
 
 static E_Video*
-get_video(E_Client *ec)
+find_video_from_ec(E_Client *ec)
 {
    E_Video *video;
    Eina_List *l;
@@ -182,11 +183,59 @@ get_video(E_Client *ec)
    return NULL;
 }
 
-static void
-_e_video_input_buffer_cb_destroy(E_Devmgr_Buf *mbuf, void *data)
+static E_Video*
+find_video_from_input_buffer(E_Devmgr_Buf *mbuf)
 {
-   E_Video *video = (E_Video *)data;
+   E_Video *video;
+   Eina_List *l;
+
+   EINA_LIST_FOREACH(video_list, l, video)
+     if (eina_list_data_find(video->input_buffer_list, mbuf))
+       return video;
+
+   return NULL;
+}
+
+static void
+_e_video_input_buffer_cb_destroy(struct wl_listener *listener, void *data)
+{
+   E_Devmgr_Buf *mbuf = container_of(listener, E_Devmgr_Buf, buffer_destroy_listener);
+   E_Video *video = find_video_from_input_buffer(mbuf);
+
    video->input_buffer_list = eina_list_remove(video->input_buffer_list, mbuf);
+
+   if (mbuf->buffer_destroy_listener.notify)
+     {
+        wl_list_remove(&mbuf->buffer_destroy_listener.link);
+        mbuf->buffer_destroy_listener.notify = NULL;
+     }
+   e_devmgr_buffer_unref(mbuf);
+
+   /* in case input_buffer is framebuffer */
+   if (!video->cvt)
+     {
+        E_Video_Fb *temp;
+        Eina_List *l, *ll;
+
+        /* if current fb is destroyed */
+        if (video->current_fb && video->current_fb->mbuf == mbuf)
+          {
+             _e_video_frame_buffer_show(video, NULL);
+             _e_video_frame_buffer_destroy(video->current_fb);
+             video->current_fb = NULL;
+             DBG("current fb destroyed");
+             return;
+          }
+
+        /* if waiting fb is destroyed */
+        EINA_LIST_FOREACH_SAFE(video->waiting_list, l, ll, temp)
+          if (temp->mbuf == mbuf)
+            {
+                video->waiting_list = eina_list_remove(video->waiting_list, temp);
+               _e_video_frame_buffer_destroy(temp);
+               return;
+            }
+     }
 }
 
 static E_Devmgr_Buf*
@@ -217,17 +266,15 @@ _e_video_input_buffer_get(E_Video *video, Tizen_Buffer *tizen_buffer, Eina_Bool 
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
-   e_devmgr_buffer_free_func_add(mbuf, _e_video_input_buffer_cb_destroy, video);
    video->input_buffer_list = eina_list_append(video->input_buffer_list, mbuf);
 
-   return mbuf;
-}
+   if (tizen_buffer->buffer)
+     {
+        mbuf->buffer_destroy_listener.notify = _e_video_input_buffer_cb_destroy;
+        wl_signal_add(&tizen_buffer->buffer->destroy_signal, &mbuf->buffer_destroy_listener);
+     }
 
-static void
-_e_video_output_buffer_cb_destroy(E_Devmgr_Buf *mbuf, void *data)
-{
-   E_Video *video = (E_Video *)data;
-   video->output_buffer_list = eina_list_remove(video->output_buffer_list, mbuf);
+   return mbuf;
 }
 
 static E_Devmgr_Buf*
@@ -238,14 +285,13 @@ _e_video_output_buffer_get(E_Video *video)
 
    EINA_LIST_FOREACH(video->output_buffer_list, l, mbuf)
      {
-        if (mbuf->b.tizen_buffer && !MBUF_IS_CONVERTING(mbuf) && !mbuf->showing)
+        if (!MBUF_IS_CONVERTING(mbuf) && !mbuf->showing)
           return mbuf;
      }
 
    mbuf = e_devmgr_buffer_alloc_fb(video->ow, video->oh, EINA_FALSE);
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
-   e_devmgr_buffer_free_func_add(mbuf, _e_video_output_buffer_cb_destroy, video);
    video->output_buffer_list = eina_list_append(video->output_buffer_list, mbuf);
 
    return mbuf;
@@ -458,12 +504,6 @@ _e_video_format_info_get(E_Video *video)
      video->drmfmt = drm_buffer->format;
 }
 
-static void
-_e_video_buffer_cb_tb_destroy(struct wl_listener *listener, void *data)
-{
-   NEVER_GET_HERE();
-}
-
 static E_Video_Fb*
 _e_video_frame_buffer_create(E_Video *video, E_Devmgr_Buf *mbuf)
 {
@@ -476,9 +516,6 @@ _e_video_frame_buffer_create(E_Video *video, E_Devmgr_Buf *mbuf)
      {
         E_Comp_Wl_Buffer *buffer = mbuf->b.tizen_buffer->buffer;
         e_comp_wl_buffer_reference(&vfb->buffer_ref, buffer);
-
-        vfb->buffer_destroy_listener.notify = _e_video_buffer_cb_tb_destroy;
-        wl_signal_add(&buffer->destroy_signal, &vfb->buffer_destroy_listener);
      }
 
    return vfb;
@@ -494,8 +531,6 @@ _e_video_frame_buffer_destroy(E_Video_Fb *vfb)
         DBG("%d: hidden", MSTAMP(vfb->mbuf));
         e_devmgr_buffer_unref(vfb->mbuf);
      }
-   if (vfb->buffer_destroy_listener.notify)
-     wl_list_remove(&vfb->buffer_destroy_listener.link);
    e_comp_wl_buffer_reference(&vfb->buffer_ref, NULL);
    free (vfb);
 }
@@ -717,7 +752,6 @@ _e_video_destroy(E_Video *video)
 {
    E_Devmgr_Buf *mbuf;
    E_Video_Fb *vfb;
-   Eina_List *l, *ll;
 
    if (!video)
       return;
@@ -742,10 +776,17 @@ _e_video_destroy(E_Video *video)
      e_devmgr_cvt_destroy(video->cvt);
 
    /* others */
-   EINA_LIST_FOREACH_SAFE(video->input_buffer_list, l, ll, mbuf)
-     e_devmgr_buffer_unref(mbuf);
+   EINA_LIST_FREE(video->input_buffer_list, mbuf)
+     {
+        if (mbuf->buffer_destroy_listener.notify)
+          {
+             wl_list_remove(&mbuf->buffer_destroy_listener.link);
+             mbuf->buffer_destroy_listener.notify = NULL;
+          }
+        e_devmgr_buffer_unref(mbuf);
+     }
 
-   EINA_LIST_FOREACH_SAFE(video->output_buffer_list, l, ll, mbuf)
+   EINA_LIST_FREE(video->output_buffer_list, mbuf)
      e_devmgr_buffer_unref(mbuf);
 
    e_devicemgr_drm_vblank_handler_del(_e_video_vblank_handler, video);
@@ -840,7 +881,7 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
       return ECORE_CALLBACK_PASS_ON;
    DBG("======================================");
    /* find video */
-   video = get_video(ec);
+   video = find_video_from_ec(ec);
    if (!video)
      {
         video = _e_video_create(ec);
@@ -860,7 +901,7 @@ _e_video_cb_ec_remove(void *data, int type, void *event)
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(ev, ECORE_CALLBACK_PASS_ON);
 
-   _e_video_destroy(get_video(ev->ec));
+   _e_video_destroy(find_video_from_ec(ev->ec));
 
    return ECORE_CALLBACK_PASS_ON;
 }

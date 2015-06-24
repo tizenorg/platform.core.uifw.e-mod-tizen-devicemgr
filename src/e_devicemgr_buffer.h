@@ -78,7 +78,6 @@ E_Devmgr_Buf* _e_devmgr_buffer_create_ext(uint handle, int width, int height, ui
 E_Devmgr_Buf* _e_devmgr_buffer_alloc_fb  (int width, int height, Eina_Bool secure, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_ref    (E_Devmgr_Buf *mbuf, const char *func);
 void          _e_devmgr_buffer_unref  (E_Devmgr_Buf *mbuf, const char *func);
-void          _e_devmgr_buffer_free   (E_Devmgr_Buf *mbuf, const char *func);
 Eina_Bool     _e_devmgr_buffer_valid  (E_Devmgr_Buf *mbuf, const char *func);
 void          e_devmgr_buffer_clear   (E_Devmgr_Buf *mbuf);
 
@@ -92,7 +91,7 @@ void         e_devmgr_buffer_free_func_del  (E_Devmgr_Buf *mbuf, MBuf_Free_Func 
 #define e_devmgr_buffer_alloc_fb(w,h,d)  _e_devmgr_buffer_alloc_fb(w,h,d,__FUNCTION__)
 #define e_devmgr_buffer_ref(b)    _e_devmgr_buffer_ref(b,__FUNCTION__)
 #define e_devmgr_buffer_unref(b)  _e_devmgr_buffer_unref(b,__FUNCTION__)
-#define e_devmgr_buffer_free(b)   _e_devmgr_buffer_free(b,__FUNCTION__)
+
 #define MBUF_IS_VALID(b)       _e_devmgr_buffer_valid(b,__FUNCTION__)
 #define MSTAMP(b)            ((b)?(b)->stamp:0)
 #define MBUF_IS_CONVERTING(b)       (eina_list_nth((b)->convert_info, 0)?EINA_TRUE:EINA_FALSE)

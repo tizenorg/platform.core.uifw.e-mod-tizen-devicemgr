@@ -417,7 +417,7 @@ _e_tz_screenmirror_dump(E_Mirror_Buffer *buffer)
           }
      }
    else
-      NEVER_GET_HERE();
+     ERR("unrecognized buffer");
 }
 
 static void
