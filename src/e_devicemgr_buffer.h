@@ -76,7 +76,7 @@ E_Devmgr_Buf_Color_Type e_devmgr_buffer_color_type (unsigned int drmfmt);
 
 E_Devmgr_Buf* _e_devmgr_buffer_create    (Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_create_fb (Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char *func);
-E_Devmgr_Buf* _e_devmgr_buffer_create_ext(uint handle, int width, int height, uint format, const char *func);
+E_Devmgr_Buf* _e_devmgr_buffer_create_ext(uint handle, int width, int height, uint drmfmt, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_alloc_fb  (int width, int height, Eina_Bool secure, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_ref    (E_Devmgr_Buf *mbuf, const char *func);
 void          _e_devmgr_buffer_unref  (E_Devmgr_Buf *mbuf, const char *func);

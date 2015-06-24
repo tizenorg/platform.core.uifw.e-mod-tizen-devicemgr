@@ -37,15 +37,15 @@ typedef struct _ColorTable
 
 static ColorTable color_table[] =
 {
-   { TIZEN_BUFFER_POOL_FORMAT_ARGB8888,  TYPE_RGB    },
-   { TIZEN_BUFFER_POOL_FORMAT_XRGB8888,  TYPE_RGB    },
-   { TIZEN_BUFFER_POOL_FORMAT_YVU420,    TYPE_YUV420 },
-   { TIZEN_BUFFER_POOL_FORMAT_YUV420,    TYPE_YUV420 },
-   { TIZEN_BUFFER_POOL_FORMAT_ST12,      TYPE_YUV420 },
-   { TIZEN_BUFFER_POOL_FORMAT_NV12,      TYPE_YUV420 },
-   { TIZEN_BUFFER_POOL_FORMAT_NV21,      TYPE_YUV420 },
-   { TIZEN_BUFFER_POOL_FORMAT_YUYV,      TYPE_YUV422 },
-   { TIZEN_BUFFER_POOL_FORMAT_UYVY,      TYPE_YUV422 },
+   { DRM_FORMAT_ARGB8888,  TYPE_RGB    },
+   { DRM_FORMAT_XRGB8888,  TYPE_RGB    },
+   { DRM_FORMAT_YVU420,    TYPE_YUV420 },
+   { DRM_FORMAT_YUV420,    TYPE_YUV420 },
+   { DRM_FORMAT_NV12MT,    TYPE_YUV420 },
+   { DRM_FORMAT_NV12,      TYPE_YUV420 },
+   { DRM_FORMAT_NV21,      TYPE_YUV420 },
+   { DRM_FORMAT_YUYV,      TYPE_YUV422 },
+   { DRM_FORMAT_UYVY,      TYPE_YUV422 },
 };
 
 static Eina_List *mbuf_lists;
@@ -61,16 +61,16 @@ get_image_attrs(uint drmfmt, int *w, int *h, uint *pitches, uint *offsets, uint 
    switch (drmfmt)
    {
    /* RGB32 */
-   case TIZEN_BUFFER_POOL_FORMAT_ARGB8888:
-   case TIZEN_BUFFER_POOL_FORMAT_XRGB8888:
+   case DRM_FORMAT_ARGB8888:
+   case DRM_FORMAT_XRGB8888:
      size += (*w << 2);
      if (pitches) pitches[0] = size;
      size *= *h;
      if (lengths) lengths[0] = size;
      break;
    /* YUV420, 3 planar */
-   case TIZEN_BUFFER_POOL_FORMAT_YVU420:
-   case TIZEN_BUFFER_POOL_FORMAT_YUV420:
+   case DRM_FORMAT_YVU420:
+   case DRM_FORMAT_YUV420:
      *h = (*h + 1) & ~1;
      size = (*w + 3) & ~3;
      if (pitches) pitches[0] = size;
@@ -87,16 +87,16 @@ get_image_attrs(uint drmfmt, int *w, int *h, uint *pitches, uint *offsets, uint 
      if (lengths) lengths[2] = tmp;
      break;
    /* YUV422, packed */
-   case TIZEN_BUFFER_POOL_FORMAT_YUYV:
-   case TIZEN_BUFFER_POOL_FORMAT_UYVY:
+   case DRM_FORMAT_YUYV:
+   case DRM_FORMAT_UYVY:
      size = *w << 1;
      if (pitches)  pitches[0] = size;
      size *= *h;
      if (lengths) lengths[0] = size;
      break;
    /* YUV420, 2 planar */
-   case TIZEN_BUFFER_POOL_FORMAT_NV12:
-   case TIZEN_BUFFER_POOL_FORMAT_NV21:
+   case DRM_FORMAT_NV12:
+   case DRM_FORMAT_NV21:
      if (pitches) pitches[0] = *w;
      size = (*w) * (*h);
      if (offsets) offsets[1] = size;
@@ -107,7 +107,7 @@ get_image_attrs(uint drmfmt, int *w, int *h, uint *pitches, uint *offsets, uint 
      if (lengths) lengths[1] = tmp;
      break;
    /* YUV420, 2 planar, tiled */
-   case TIZEN_BUFFER_POOL_FORMAT_ST12:
+   case DRM_FORMAT_NV12MT:
      if (pitches) pitches[0] = *w;
      size = ALIGN_TO_8KB(ALIGN_TO_128B(*w) * ALIGN_TO_32B(*h));
      if (offsets) offsets[1] = size;
@@ -246,7 +246,13 @@ _e_devmgr_buffer_create(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char
    mbuf = calloc(1, sizeof(E_Devmgr_Buf));
    EINA_SAFETY_ON_FALSE_GOTO(mbuf != NULL, create_fail);
 
-   mbuf->drmfmt = tizen_buffer->drm_buffer->format;
+   if (tizen_buffer->drm_buffer->format == TIZEN_BUFFER_POOL_FORMAT_ST12)
+     mbuf->drmfmt = DRM_FORMAT_NV12MT;
+   else if (tizen_buffer->drm_buffer->format == TIZEN_BUFFER_POOL_FORMAT_SN12)
+     mbuf->drmfmt = DRM_FORMAT_NV12;
+   else
+     mbuf->drmfmt = tizen_buffer->drm_buffer->format;
+
    mbuf->width = tizen_buffer->drm_buffer->width;
    mbuf->height = tizen_buffer->drm_buffer->height;
    for (i = 0; i < 3; i++)
@@ -315,7 +321,7 @@ create_fail:
 }
 
 E_Devmgr_Buf*
-_e_devmgr_buffer_create_ext(uint handle, int width, int height, uint format, const char *func)
+_e_devmgr_buffer_create_ext(uint handle, int width, int height, uint drmfmt, const char *func)
 {
    E_Devmgr_Buf *mbuf = NULL;
    uint stamp;
@@ -323,7 +329,7 @@ _e_devmgr_buffer_create_ext(uint handle, int width, int height, uint format, con
    EINA_SAFETY_ON_FALSE_RETURN_VAL(handle > 0, NULL);
    EINA_SAFETY_ON_FALSE_RETURN_VAL(width > 0, NULL);
    EINA_SAFETY_ON_FALSE_RETURN_VAL(height > 0, NULL);
-   if (format != TIZEN_BUFFER_POOL_FORMAT_ARGB8888 && format != TIZEN_BUFFER_POOL_FORMAT_XRGB8888)
+   if (drmfmt != DRM_FORMAT_ARGB8888 && drmfmt != DRM_FORMAT_XRGB8888)
      {
         NEVER_GET_HERE();
         return NULL;
@@ -332,7 +338,7 @@ _e_devmgr_buffer_create_ext(uint handle, int width, int height, uint format, con
    mbuf = calloc(1, sizeof(E_Devmgr_Buf));
    EINA_SAFETY_ON_FALSE_GOTO(mbuf != NULL, create_fail);
 
-   mbuf->drmfmt = format;
+   mbuf->drmfmt = drmfmt;
    mbuf->width = width;
    mbuf->height = height;
    mbuf->pitches[0] = (width << 2);
@@ -372,7 +378,7 @@ _e_devmgr_buffer_alloc_fb(int width, int height, Eina_Bool secure, const char *f
    mbuf = calloc(1, sizeof(E_Devmgr_Buf));
    EINA_SAFETY_ON_FALSE_GOTO(mbuf != NULL, alloc_fail);
 
-   mbuf->drmfmt = TIZEN_BUFFER_POOL_FORMAT_ARGB8888;
+   mbuf->drmfmt = DRM_FORMAT_ARGB8888;
    mbuf->width = width;
    mbuf->height = height;
    mbuf->pitches[0] = (width << 2);
@@ -668,8 +674,8 @@ e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *file, Eina_Bool raw)
 
    if (!mbuf) return;
 
-   if (mbuf->drmfmt == TIZEN_BUFFER_POOL_FORMAT_XRGB8888 ||
-       mbuf->drmfmt == TIZEN_BUFFER_POOL_FORMAT_ARGB8888)
+   if (mbuf->drmfmt == DRM_FORMAT_XRGB8888 ||
+       mbuf->drmfmt == DRM_FORMAT_ARGB8888)
      snprintf(path, sizeof(path), "/tmp/%s.%s", file, raw?"raw":"png");
    else
      snprintf(path, sizeof(path), "/tmp/%s.yuv", file);
@@ -685,8 +691,8 @@ e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *file, Eina_Bool raw)
      }
 
    ptr = tbm_bo_map(bo[0], TBM_DEVICE_CPU, TBM_OPTION_READ).ptr;
-   if (mbuf->drmfmt == TIZEN_BUFFER_POOL_FORMAT_XRGB8888 ||
-       mbuf->drmfmt == TIZEN_BUFFER_POOL_FORMAT_ARGB8888)
+   if (mbuf->drmfmt == DRM_FORMAT_XRGB8888 ||
+       mbuf->drmfmt == DRM_FORMAT_ARGB8888)
      {
         if (raw)
           _dump_raw(path, ptr, mbuf->width * mbuf->height * 4);
