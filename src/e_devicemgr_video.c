@@ -451,7 +451,12 @@ _e_video_format_info_get(E_Video *video)
    drm_buffer = e_drm_buffer_get(buffer->resource);
    EINA_SAFETY_ON_NULL_RETURN(drm_buffer);
 
-   video->drmfmt = drm_buffer->format;
+   if (drm_buffer->format == TIZEN_BUFFER_POOL_FORMAT_ST12)
+     video->drmfmt = DRM_FORMAT_NV12MT;
+   else if (drm_buffer->format == TIZEN_BUFFER_POOL_FORMAT_SN12)
+     video->drmfmt = DRM_FORMAT_NV12;
+   else
+     video->drmfmt = drm_buffer->format;
 }
 
 static void
@@ -574,8 +579,8 @@ _e_video_buffer_show(E_Video *video, E_Devmgr_Buf *mbuf)
 static Eina_Bool
 _e_video_cvt_need(E_Video *video)
 {
-   if (video->drmfmt != TIZEN_BUFFER_POOL_FORMAT_XRGB8888 &&
-       video->drmfmt != TIZEN_BUFFER_POOL_FORMAT_ARGB8888)
+   if (video->drmfmt != DRM_FORMAT_XRGB8888 &&
+       video->drmfmt != DRM_FORMAT_ARGB8888)
      return EINA_TRUE;
 
    if (video->ir.w != video->ow || video->ir.h != video->oh)
@@ -681,7 +686,7 @@ _e_video_create(E_Client *ec)
         src.width = video->iw;
         src.height = video->ih;
         src.crop = video->ir;
-        dst.drmfmt = TIZEN_BUFFER_POOL_FORMAT_XRGB8888;
+        dst.drmfmt = DRM_FORMAT_XRGB8888;
         dst.width = video->ow;
         dst.height = video->oh;
         dst.crop.x = dst.crop.y = 0;

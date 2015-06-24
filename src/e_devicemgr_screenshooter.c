@@ -187,19 +187,19 @@ _e_tz_screenmirror_src_buffer_get(E_Mirror *mirror)
    Ecore_Drm_Output *output;
    E_Devmgr_Buf *mbuf;
    Eina_List *l;
-   uint handle, format;
+   uint handle, drmfmt;
    int w, h;
 
    output = _e_tz_screenmirror_drm_output_find(mirror->crtc_id);
 
    /* TODO: should find the better way to find current framebuffer */
-   ecore_drm_output_current_fb_info_get(output, &handle, &w, &h, &format);
+   ecore_drm_output_current_fb_info_get(output, &handle, &w, &h, &drmfmt);
 
    EINA_LIST_FOREACH(mirror->src_buffer_list, l, mbuf)
      if (mbuf->handles[0] == handle)
        return mbuf;
 
-   mbuf = e_devmgr_buffer_create_ext(handle, w, h, format);
+   mbuf = e_devmgr_buffer_create_ext(handle, w, h, drmfmt);
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
    e_devmgr_buffer_free_func_add(mbuf, _e_tz_screenmirror_src_buffer_cb_destroy, mirror);
