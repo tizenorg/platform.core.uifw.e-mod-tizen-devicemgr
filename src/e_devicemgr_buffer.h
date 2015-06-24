@@ -42,8 +42,6 @@ typedef struct _E_Devmgr_Buf
    uint handles[4];
    uint pitches[4];
    uint offsets[4];
-   uint lengths[4];
-   uint size;
 
    E_Devmgr_Buf_Type type;
    union {

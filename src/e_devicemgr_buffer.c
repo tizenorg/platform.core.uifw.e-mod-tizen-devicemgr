@@ -16,13 +16,6 @@
 #define MBUF_RETURN_VAL_IF_FAIL(cond, val) \
    {if (!(cond)) { ERR("%d: '%s' failed. (%s)", mbuf->stamp, #cond, func); return val; }}
 
-#define ALIGN_TO_16B(x)    ((((x) + (1 <<  4) - 1) >>  4) <<  4)
-#define ALIGN_TO_32B(x)    ((((x) + (1 <<  5) - 1) >>  5) <<  5)
-#define ALIGN_TO_128B(x)   ((((x) + (1 <<  7) - 1) >>  7) <<  7)
-#define ALIGN_TO_2KB(x)    ((((x) + (1 << 11) - 1) >> 11) << 11)
-#define ALIGN_TO_8KB(x)    ((((x) + (1 << 13) - 1) >> 13) << 13)
-#define ALIGN_TO_64KB(x)   ((((x) + (1 << 16) - 1) >> 16) << 16)
-
 typedef struct _MBufFreeFuncInfo
 {
    MBuf_Free_Func  func;
@@ -49,80 +42,6 @@ static ColorTable color_table[] =
 };
 
 static Eina_List *mbuf_lists;
-
-static uint
-get_image_attrs(uint drmfmt, int *w, int *h, uint *pitches, uint *offsets, uint *lengths)
-{
-   int size = 0, tmp = 0;
-
-   *w = (*w + 1) & ~1;
-   if (offsets) offsets[0] = 0;
-
-   switch (drmfmt)
-   {
-   /* RGB32 */
-   case DRM_FORMAT_ARGB8888:
-   case DRM_FORMAT_XRGB8888:
-     size += (*w << 2);
-     if (pitches) pitches[0] = size;
-     size *= *h;
-     if (lengths) lengths[0] = size;
-     break;
-   /* YUV420, 3 planar */
-   case DRM_FORMAT_YVU420:
-   case DRM_FORMAT_YUV420:
-     *h = (*h + 1) & ~1;
-     size = (*w + 3) & ~3;
-     if (pitches) pitches[0] = size;
-     size *= *h;
-     if (offsets) offsets[1] = size;
-     if (lengths) lengths[0] = size;
-     tmp = ((*w >> 1) + 3) & ~3;
-     if (pitches) pitches[1] = pitches[2] = tmp;
-     tmp *= (*h >> 1);
-     size += tmp;
-     if (offsets) offsets[2] = size;
-     if (lengths) lengths[1] = tmp;
-     size += tmp;
-     if (lengths) lengths[2] = tmp;
-     break;
-   /* YUV422, packed */
-   case DRM_FORMAT_YUYV:
-   case DRM_FORMAT_UYVY:
-     size = *w << 1;
-     if (pitches)  pitches[0] = size;
-     size *= *h;
-     if (lengths) lengths[0] = size;
-     break;
-   /* YUV420, 2 planar */
-   case DRM_FORMAT_NV12:
-   case DRM_FORMAT_NV21:
-     if (pitches) pitches[0] = *w;
-     size = (*w) * (*h);
-     if (offsets) offsets[1] = size;
-     if (lengths) lengths[0] = size;
-     if (pitches) pitches[1] = *w >> 1;
-     tmp = (*w) * (*h >> 1);
-     size += tmp;
-     if (lengths) lengths[1] = tmp;
-     break;
-   /* YUV420, 2 planar, tiled */
-   case DRM_FORMAT_NV12MT:
-     if (pitches) pitches[0] = *w;
-     size = ALIGN_TO_8KB(ALIGN_TO_128B(*w) * ALIGN_TO_32B(*h));
-     if (offsets) offsets[1] = size;
-     if (lengths) lengths[0] = size;
-     if (pitches) pitches[1] = *w >> 1;
-     tmp = ALIGN_TO_8KB(ALIGN_TO_128B(*w) * ALIGN_TO_32B(*h >> 1));
-     size += tmp;
-     if (lengths) lengths[1] = tmp;
-     break;
-   default:
-     return 0;
-   }
-
-   return size;
-}
 
 static tbm_bo
 _e_devmgr_buf_normal_alloc(int size, int flags)
@@ -236,9 +155,6 @@ _e_devmgr_buffer_create(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char
 {
    E_Devmgr_Buf *mbuf = NULL;
    uint stamp;
-   int width, height;
-   uint pitches[4];
-   uint offsets[4];
    int i;
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(tizen_buffer, NULL);
@@ -258,15 +174,12 @@ _e_devmgr_buffer_create(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char
    for (i = 0; i < 3; i++)
      {
         if (tizen_buffer->bo[i])
-          mbuf->handles[i] = tbm_bo_get_handle(tizen_buffer->bo[i], TBM_DEVICE_DEFAULT).u32;
-        mbuf->pitches[i] = tizen_buffer->drm_buffer->stride[i];
-        mbuf->offsets[i] = tizen_buffer->drm_buffer->offset[i];
+          {
+            mbuf->handles[i] = tbm_bo_get_handle(tizen_buffer->bo[i], TBM_DEVICE_DEFAULT).u32;
+            mbuf->pitches[i] = tizen_buffer->drm_buffer->stride[i];
+            mbuf->offsets[i] = tizen_buffer->drm_buffer->offset[i];
+          }
      }
-
-   width = mbuf->width;
-   height = mbuf->height;
-   mbuf->size = get_image_attrs(mbuf->drmfmt, &width, &height, pitches, offsets, mbuf->lengths);
-   EINA_SAFETY_ON_FALSE_GOTO(mbuf->size > 0, create_fail);
 
    mbuf->type = TYPE_TB;
    mbuf->b.tizen_buffer = tizen_buffer;
@@ -342,7 +255,6 @@ _e_devmgr_buffer_create_ext(uint handle, int width, int height, uint drmfmt, con
    mbuf->width = width;
    mbuf->height = height;
    mbuf->pitches[0] = (width << 2);
-   mbuf->size = mbuf->lengths[0] = mbuf->pitches[0] * mbuf->height;
 
    mbuf->type = TYPE_EXT;
    mbuf->handles[0] = handle;
@@ -382,13 +294,12 @@ _e_devmgr_buffer_alloc_fb(int width, int height, Eina_Bool secure, const char *f
    mbuf->width = width;
    mbuf->height = height;
    mbuf->pitches[0] = (width << 2);
-   mbuf->size = mbuf->lengths[0] = mbuf->pitches[0] * mbuf->height;
 
    mbuf->type = TYPE_BO;
    if (!secure)
-     mbuf->b.bo[0] = _e_devmgr_buf_normal_alloc(mbuf->size, TBM_BO_DEFAULT);
+     mbuf->b.bo[0] = _e_devmgr_buf_normal_alloc(mbuf->pitches[0] * mbuf->height, TBM_BO_DEFAULT);
    else
-     mbuf->b.bo[0] = _e_devmgr_buf_secure_alloc(mbuf->size, TBM_BO_DEFAULT);
+     mbuf->b.bo[0] = _e_devmgr_buf_secure_alloc(mbuf->pitches[0] * mbuf->height, TBM_BO_DEFAULT);
    EINA_SAFETY_ON_FALSE_GOTO(mbuf->b.bo[0] != NULL, alloc_fail);
 
    mbuf->handles[0] = tbm_bo_get_handle(mbuf->b.bo[0], TBM_DEVICE_DEFAULT).u32;
@@ -595,14 +506,21 @@ e_devmgr_buffer_get_mills(void)
 }
 
 static void
-_dump_raw(const char * file, void *data, int size)
+_dump_raw(const char * file, void *data1, int size1, void *data2, int size2)
 {
    unsigned int * blocks;
    FILE * fp = fopen(file, "w+");
    EINA_SAFETY_ON_NULL_RETURN(fp);
 
-   blocks = (unsigned int*)data;
-   fwrite(blocks, 1, size, fp);
+   blocks = (unsigned int*)data1;
+   fwrite(blocks, 1, size1, fp);
+
+   if (size2 > 0)
+     {
+        blocks = (unsigned int*)data2;
+        fwrite(blocks, 1, size2, fp);
+     }
+
    fclose(fp);
 }
 
@@ -690,23 +608,24 @@ e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *file, Eina_Bool raw)
         return;
      }
 
-   ptr = tbm_bo_map(bo[0], TBM_DEVICE_CPU, TBM_OPTION_READ).ptr;
+   ptr = tbm_bo_get_handle(bo[0], TBM_DEVICE_CPU).ptr;
    if (mbuf->drmfmt == DRM_FORMAT_XRGB8888 ||
        mbuf->drmfmt == DRM_FORMAT_ARGB8888)
      {
         if (raw)
-          _dump_raw(path, ptr, mbuf->width * mbuf->height * 4);
+          _dump_raw(path, ptr, mbuf->width * mbuf->height * 4, NULL, 0);
         else
           _dump_png(path, ptr, mbuf->width, mbuf->height);
      }
    else
      {
         if (!bo[1])
-          _dump_raw(path, ptr, mbuf->size);
+          _dump_raw(path, ptr, mbuf->pitches[0] * mbuf->height, NULL, 0);
         else
-          _dump_raw(path, ptr, mbuf->lengths[0]);
+          _dump_raw(path, ptr, mbuf->pitches[0] * mbuf->height,
+                    tbm_bo_get_handle(bo[1], TBM_DEVICE_CPU).ptr,
+                    mbuf->pitches[1] * mbuf->height);
      }
-   tbm_bo_unmap(bo[0]);
 
    DBG("dump %s", path);
 }
