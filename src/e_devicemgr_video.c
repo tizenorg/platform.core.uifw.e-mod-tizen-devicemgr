@@ -61,8 +61,7 @@ static uint video_format_table[] =
    TIZEN_BUFFER_POOL_FORMAT_NV21,
    TIZEN_BUFFER_POOL_FORMAT_YUV420,
    TIZEN_BUFFER_POOL_FORMAT_YVU420,
-   TIZEN_BUFFER_POOL_FORMAT_SN12,
-   TIZEN_BUFFER_POOL_FORMAT_ST12
+   TIZEN_BUFFER_POOL_FORMAT_SN12
 };
 
 #define NUM_VIDEO_FORMAT   (sizeof(video_format_table) / sizeof(video_format_table[0]))
