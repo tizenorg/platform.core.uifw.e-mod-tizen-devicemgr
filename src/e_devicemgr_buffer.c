@@ -216,6 +216,13 @@ _e_devmgr_buffer_create_fb(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const c
 
    EINA_SAFETY_ON_FALSE_GOTO(mbuf->fb_id > 0, create_fail);
 
+   DBG("%dx%d, %c%c%c%c, (%d,%d,%d), (%d,%d,%d), (%d,%d,%d): fb_id(%d)",
+       mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
+       mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
+       mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
+       mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2],
+       mbuf->fb_id);
+
    return mbuf;
 create_fail:
    e_devmgr_buffer_free(mbuf);
@@ -231,7 +238,7 @@ _e_devmgr_buffer_create_ext(uint handle, int width, int height, uint drmfmt, con
    EINA_SAFETY_ON_FALSE_RETURN_VAL(handle > 0, NULL);
    EINA_SAFETY_ON_FALSE_RETURN_VAL(width > 0, NULL);
    EINA_SAFETY_ON_FALSE_RETURN_VAL(height > 0, NULL);
-   if (drmfmt != DRM_FORMAT_ARGB8888 && drmfmt != DRM_FORMAT_XRGB8888)
+   if (!IS_RGB(drmfmt))
      {
         ERR("not supported format: %c%c%c%c", FOURCC_STR(drmfmt));
         return NULL;
@@ -282,7 +289,7 @@ _e_devmgr_buffer_alloc_fb(int width, int height, Eina_Bool secure, const char *f
    mbuf->drmfmt = DRM_FORMAT_ARGB8888;
    mbuf->width = width;
    mbuf->height = height;
-   mbuf->pitches[0] = (width << 2);
+   mbuf->pitches[0] = ((width + 15) & (~0xF)) << 2;
 
    mbuf->type = TYPE_BO;
    if (!secure)
@@ -316,6 +323,12 @@ _e_devmgr_buffer_alloc_fb(int width, int height, Eina_Bool secure, const char *f
    mbuf->ref_cnt = 1;
 
    DBG("%d(%d) alloc: %s", mbuf->stamp, mbuf->ref_cnt, func);
+   DBG("%dx%d, %c%c%c%c, (%d,%d,%d), (%d,%d,%d), (%d,%d,%d): fb_id(%d)",
+       mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
+       mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
+       mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
+       mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2],
+       mbuf->fb_id);
 
    return mbuf;
 
@@ -576,8 +589,7 @@ e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *file, Eina_Bool raw)
 
    if (!mbuf) return;
 
-   if (mbuf->drmfmt == DRM_FORMAT_XRGB8888 ||
-       mbuf->drmfmt == DRM_FORMAT_ARGB8888)
+   if (IS_RGB(mbuf->drmfmt))
      snprintf(path, sizeof(path), "/tmp/%s.%s", file, raw?"raw":"png");
    else
      snprintf(path, sizeof(path), "/tmp/%s.yuv", file);
@@ -593,8 +605,7 @@ e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *file, Eina_Bool raw)
      }
 
    ptr = tbm_bo_get_handle(bo[0], TBM_DEVICE_CPU).ptr;
-   if (mbuf->drmfmt == DRM_FORMAT_XRGB8888 ||
-       mbuf->drmfmt == DRM_FORMAT_ARGB8888)
+   if (IS_RGB(mbuf->drmfmt))
      {
         if (raw)
           _dump_raw(path, ptr, mbuf->width * mbuf->height * 4, NULL, 0);

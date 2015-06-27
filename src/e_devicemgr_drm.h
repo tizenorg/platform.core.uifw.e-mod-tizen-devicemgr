@@ -15,7 +15,8 @@
 /* Specific format for S.LSI
  * 2x2 subsampled Cr:Cb plane 64x32 macroblocks
  */
-#define DRM_FORMAT_NV12MT       fourcc_code('T', 'M', '1', '2')
+#define DRM_FORMAT_NV12MT   fourcc_code('T', 'M', '1', '2')
+#define IS_RGB(f)           ((f) == DRM_FORMAT_XRGB8888 || (f) == DRM_FORMAT_ARGB8888)
 
 /* securezone memory */
 #define TZMEM_IOC_GET_TZMEM 0xC00C5402

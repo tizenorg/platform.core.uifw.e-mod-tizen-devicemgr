@@ -22,6 +22,7 @@ AC_INIT([e-mod-tizen-devicemgr], [0.1], [sj76.park@samsung.com])
 # foreign: relax some GNU standard requirements
 #AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 AM_INIT_AUTOMAKE([-Wall foreign])
+AM_SILENT_RULES([yes])
 
 dnl ========================================================================
 # checks for programs
