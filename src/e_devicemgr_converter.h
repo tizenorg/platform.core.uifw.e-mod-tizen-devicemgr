@@ -24,6 +24,7 @@ Eina_Bool     e_devmgr_cvt_ensure_size (E_Devmgr_Cvt_Prop *src, E_Devmgr_Cvt_Pro
 
 E_Devmgr_Cvt* e_devmgr_cvt_create  (void);
 void          e_devmgr_cvt_destroy (E_Devmgr_Cvt *cvt);
+Eina_Bool     e_devmgr_cvt_pause(E_Devmgr_Cvt *cvt);
 
 Eina_Bool     e_devmgr_cvt_property_set (E_Devmgr_Cvt *cvt, E_Devmgr_Cvt_Prop *src, E_Devmgr_Cvt_Prop *dst);
 void          e_devmgr_cvt_property_get (E_Devmgr_Cvt *cvt, E_Devmgr_Cvt_Prop *src, E_Devmgr_Cvt_Prop *dst);

@@ -37,6 +37,10 @@ typedef enum
 typedef struct _E_Devmgr_Buf
 {
    uint drmfmt;
+
+   /* pitch contains the full buffer width.
+    * width indicates the content area width.
+    */
    int width;
    int height;
    uint handles[4];

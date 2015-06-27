@@ -64,6 +64,7 @@ struct _E_Devmgr_Cvt
 #endif
 
    Eina_Bool started;
+   Eina_Bool paused;
    Eina_Bool first_event;
 };
 
@@ -291,7 +292,7 @@ _e_devmgr_cvt_queue(E_Devmgr_Cvt *cvt, E_Devmgr_CvtBuf *cbuf)
      _printBufIndices(cvt, CVT_TYPE_SRC, "in");
 #endif
 
-   DBG("cvt(%p), cbuf(%p), type(%d), index(%d) mbuf(%p) converting(%d)",
+   DBG("queue: cvt(%p), cbuf(%p), type(%d), index(%d) mbuf(%p) converting(%d)",
        cvt, cbuf, cbuf->type, index, cbuf->mbuf, MBUF_IS_CONVERTING(cbuf->mbuf));
 
    return EINA_TRUE;
@@ -339,7 +340,7 @@ _e_devmgr_cvt_dequeued(E_Devmgr_Cvt *cvt, E_Devmgr_CvtType type, int index)
 
    set_mbuf_converting(cbuf->mbuf, cvt, EINA_FALSE);
 
-   DBG("cvt(%p) type(%d) index(%d) mbuf(%p) converting(%d)",
+   DBG("dequeued: cvt(%p) type(%d) index(%d) mbuf(%p) converting(%d)",
        cvt, type, index, cbuf->mbuf, MBUF_IS_CONVERTING(cbuf->mbuf));
 
    if (cbuf->type == CVT_TYPE_SRC)
@@ -409,7 +410,7 @@ _e_devmgr_cvt_stop(E_Devmgr_Cvt *cvt)
 
    _e_devmgr_cvt_dequeued_all(cvt);
 
-   DBG("cvt(%p)", cvt);
+   DBG("stop: cvt(%p)", cvt);
 
    cvt->prop_id = -1;
 
@@ -508,7 +509,10 @@ e_devmgr_cvt_ensure_size(E_Devmgr_Cvt_Prop *src, E_Devmgr_Cvt_Prop *dst)
         EINA_SAFETY_ON_FALSE_RETURN_VAL(src->crop.w >= 16, EINA_FALSE);
         EINA_SAFETY_ON_FALSE_RETURN_VAL(src->crop.h >= 8, EINA_FALSE);
         if (type == TYPE_YUV420 && src->height % 2)
-          ERR("src's height(%d) is not multiple of 2!!!", src->height);
+          {
+             ERR("src's height(%d) is not multiple of 2!!!", src->height);
+             return EINA_FALSE;
+          }
         if (type == TYPE_YUV420 || type == TYPE_YUV422)
           {
              src->crop.x = src->crop.x & (~0x1);
@@ -529,15 +533,12 @@ e_devmgr_cvt_ensure_size(E_Devmgr_Cvt_Prop *src, E_Devmgr_Cvt_Prop *dst)
         EINA_SAFETY_ON_FALSE_RETURN_VAL(dst->height >= 8, EINA_FALSE);
         EINA_SAFETY_ON_FALSE_RETURN_VAL(dst->crop.w >= 16, EINA_FALSE);
         EINA_SAFETY_ON_FALSE_RETURN_VAL(dst->crop.h >= 4, EINA_FALSE);
-        if (dst->width % 16)
-          {
-             int new_width = (dst->width + 16) & (~0xF);
-             DBG("dst's width : %d to %d.", dst->width, new_width);
-             dst->width = new_width;
-          }
-        dst->height = dst->height & (~0x1);
+
         if (type == TYPE_YUV420 && dst->height % 2)
-          ERR("dst's height(%d) is not multiple of 2!!!", dst->height);
+          {
+             ERR("dst's height(%d) is not multiple of 2!!!", dst->height);
+             return EINA_FALSE;
+          }
         if (type == TYPE_YUV420 || type == TYPE_YUV422)
           {
              dst->crop.x = dst->crop.x & (~0x1);
@@ -570,7 +571,7 @@ e_devmgr_cvt_create(void)
 
    cvt->prop_id = -1;
 
-   DBG("cvt(%p) stamp(%d)", cvt, stamp);
+   DBG("create: cvt(%p) stamp(%d)", cvt, stamp);
 
    cvt_list = eina_list_append(cvt_list, cvt);
 
@@ -596,10 +597,34 @@ e_devmgr_cvt_destroy(E_Devmgr_Cvt *cvt)
 
    e_devicemgr_drm_ipp_handler_del(_e_devmgr_cvt_ipp_handler, cvt);
 
-   DBG("cvt(%p)", cvt);
+   DBG("destroy: cvt(%p)", cvt);
 
    free(cvt);
 }
+
+Eina_Bool
+e_devmgr_cvt_pause(E_Devmgr_Cvt *cvt)
+{
+   struct drm_exynos_ipp_cmd_ctrl ctrl = {0,};
+
+   EINA_SAFETY_ON_NULL_RETURN_VAL(cvt, EINA_FALSE);
+
+   if (!cvt->started || cvt->paused)
+     return EINA_TRUE;
+
+   ctrl.prop_id = cvt->prop_id;
+   ctrl.ctrl = IPP_CTRL_PAUSE;
+
+   if (!e_devicemgr_drm_ipp_cmd(&ctrl))
+     return EINA_FALSE;
+
+   cvt->paused = EINA_TRUE;
+
+   DBG("pause: cvt(%p)", cvt);
+
+   return EINA_TRUE;
+}
+
 
 Eina_Bool
 e_devmgr_cvt_property_set(E_Devmgr_Cvt *cvt, E_Devmgr_Cvt_Prop *src, E_Devmgr_Cvt_Prop *dst)
@@ -613,14 +638,14 @@ e_devmgr_cvt_property_set(E_Devmgr_Cvt *cvt, E_Devmgr_Cvt_Prop *src, E_Devmgr_Cv
    EINA_SAFETY_ON_NULL_RETURN_VAL(src, EINA_FALSE);
    EINA_SAFETY_ON_NULL_RETURN_VAL(dst, EINA_FALSE);
 
-   DBG("cvt(%p) src('%c%c%c%c', '%c%c%c%c', %dx%d, %d,%d %dx%d, %d, %d&%d, %d, %d)",
+   DBG("set: cvt(%p) src('%c%c%c%c', '%c%c%c%c', %dx%d, %d,%d %dx%d, %d, %d&%d, %d, %d)",
        cvt, FOURCC_STR(src->drmfmt), FOURCC_STR(src->drmfmt),
        src->width, src->height,
        src->crop.x, src->crop.y, src->crop.w, src->crop.h,
        src->degree, src->hflip, src->vflip,
        src->secure, src->csc_range);
 
-   DBG("cvt(%p) dst('%c%c%c%c', '%c%c%c%c',%dx%d, %d,%d %dx%d, %d, %d&%d, %d, %d)",
+   DBG("set: cvt(%p) dst('%c%c%c%c', '%c%c%c%c',%dx%d, %d,%d %dx%d, %d, %d&%d, %d, %d)",
        cvt, FOURCC_STR(dst->drmfmt), FOURCC_STR(dst->drmfmt),
        dst->width, dst->height,
        dst->crop.x, dst->crop.y, dst->crop.w, dst->crop.h,
@@ -697,17 +722,13 @@ e_devmgr_cvt_convert(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst)
         goto fail;
      }
 
-   DBG("cvt(%p) srcbuf(%p) converting(%d)", cvt, src, MBUF_IS_CONVERTING(src));
-
    if (!_e_devmgr_cvt_queue(cvt, dst_cbuf))
      {
          ERR("error: queue dst buffer");
          goto fail_queue_dst;
      }
 
-   DBG("cvt(%p) dstbuf(%p) converting(%d)", cvt, dst, MBUF_IS_CONVERTING(dst));
-
-   DBG("==> ipp(%d,%d,%d : %d,%d,%d) ",
+   DBG("convert: cvt(%p) src(%d,%d,%d) dst(%d,%d,%d)", cvt,
        src->stamp, MBUF_IS_CONVERTING(src), src->showing,
        dst->stamp, MBUF_IS_CONVERTING(dst), dst->showing);
 
@@ -718,10 +739,19 @@ e_devmgr_cvt_convert(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst)
         ctrl.ctrl = IPP_CTRL_PLAY;
         if (!e_devicemgr_drm_ipp_cmd(&ctrl))
             goto fail_cmd;
-        DBG("cvt(%p) start. prop_id(%d)", cvt, ctrl.prop_id);
+        DBG("start: cvt(%p) prop_id(%d)", cvt, ctrl.prop_id);
         cvt->started = EINA_TRUE;
      }
-
+   else if (cvt->paused)
+     {
+        struct drm_exynos_ipp_cmd_ctrl ctrl = {0,};
+        ctrl.prop_id = cvt->prop_id;
+        ctrl.ctrl = IPP_CTRL_RESUME;
+        if (!e_devicemgr_drm_ipp_cmd(&ctrl))
+          goto fail_cmd;
+        DBG("resume: cvt(%p) prop_id(%d)", cvt, ctrl.prop_id);
+        cvt->paused = EINA_FALSE;
+     }
    src_cbuf->begin = e_devmgr_buffer_get_mills();
 
    return EINA_TRUE;
