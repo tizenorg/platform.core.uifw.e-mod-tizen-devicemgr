@@ -614,8 +614,25 @@ e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *file, Eina_Bool raw)
      }
    else
      {
+        int size;
+        switch(mbuf->drmfmt)
+          {
+             case DRM_FORMAT_YVU420:
+             case DRM_FORMAT_YUV420:
+             case DRM_FORMAT_NV12:
+             case DRM_FORMAT_NV21:
+                size = mbuf->pitches[0] * mbuf->height * 1.5;
+                break;
+             case DRM_FORMAT_YUYV:
+             case DRM_FORMAT_UYVY:
+                size = mbuf->pitches[0] * mbuf->height * 2;
+                break;
+             default:
+                size = tbm_bo_size(bo[0]);
+                break;
+          }
         if (!bo[1])
-          _dump_raw(path, ptr, mbuf->pitches[0] * mbuf->height, NULL, 0);
+          _dump_raw(path, ptr, size, NULL, 0);
         else
           _dump_raw(path, ptr, mbuf->pitches[0] * mbuf->height,
                     tbm_bo_get_handle(bo[1], TBM_DEVICE_CPU).ptr,
