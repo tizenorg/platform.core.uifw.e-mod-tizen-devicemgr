@@ -3,10 +3,12 @@
 #include "e_comp_wl.h"
 #include <wayland-server.h>
 #include <Ecore_Drm.h>
+#include "e_devicemgr_dpms.h"
 #include "e_devicemgr_video.h"
 #include "e_devicemgr_buffer.h"
 #include "e_devicemgr_converter.h"
 
+#define BUFFER_MAX_COUNT   3
 #define MIN_WIDTH   32
 
 typedef struct _E_Video E_Video;
@@ -33,9 +35,9 @@ struct _E_Video
    Eina_List *input_buffer_list;
 
    /* plane info */
+   Ecore_Drm_Output *drm_output;
    int pipe;
    int plane_id;
-   int crtc_id;
    int zpos;
    int crtc_w, crtc_h;
 
@@ -79,6 +81,7 @@ static Eina_List *video_list;
 static void _e_video_destroy(E_Video *video);
 static void _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb);
 static void _e_video_frame_buffer_destroy(E_Video_Fb *vfb);
+static void _e_video_vblank_handler(unsigned int sequence, unsigned int tv_sec, unsigned int tv_usec, void *data);
 
 static Eina_Bool
 check_hw_restriction(int crtc_w, int buf_w,
@@ -291,6 +294,18 @@ _e_video_cvt_buffer_get(E_Video *video, int width, int height)
 {
    E_Devmgr_Buf *mbuf;
    Eina_List *l;
+   int i = 0;
+
+   if (!video->cvt_buffer_list)
+     {
+        for (i = 0; i < BUFFER_MAX_COUNT; i++)
+          {
+             mbuf = e_devmgr_buffer_alloc_fb(width, height, EINA_FALSE);
+             EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
+
+             video->cvt_buffer_list = eina_list_append(video->cvt_buffer_list, mbuf);
+          }
+     }
 
    EINA_LIST_FOREACH(video->cvt_buffer_list, l, mbuf)
      {
@@ -298,12 +313,25 @@ _e_video_cvt_buffer_get(E_Video *video, int width, int height)
           return mbuf;
      }
 
-   mbuf = e_devmgr_buffer_alloc_fb(width, height, EINA_FALSE);
-   EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
+   ERR("all video framebuffers in use (max:%d)", BUFFER_MAX_COUNT);
 
-   video->cvt_buffer_list = eina_list_append(video->cvt_buffer_list, mbuf);
+   return NULL;
+}
 
-   return mbuf;
+static Ecore_Drm_Output*
+_e_video_plane_drm_output_find(unsigned int crtc_id)
+{
+   Ecore_Drm_Device *dev;
+   Ecore_Drm_Output *output;
+   Eina_List *devs = ecore_drm_devices_get();
+   Eina_List *l, *ll;
+
+   EINA_LIST_FOREACH(devs, l, dev)
+     EINA_LIST_FOREACH(dev->outputs, ll, output)
+       if (ecore_drm_output_crtc_id_get(output) == crtc_id)
+         return output;
+
+   return NULL;
 }
 
 static Eina_Bool
@@ -382,7 +410,7 @@ _e_video_plane_info_get(E_Video *video)
    if (!e_devicemgr_drm_set_property(plane_id, DRM_MODE_OBJECT_PLANE, "zpos", zpos))
      goto failed;
 
-   video->crtc_id = crtc_id;
+   video->drm_output = _e_video_plane_drm_output_find(crtc_id);
    video->plane_id = plane_id;
    video->zpos = zpos;
 
@@ -584,13 +612,16 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
    uint target_msc;
    int new_src_x, new_src_w;
    int new_dst_x, new_dst_w;
+   int crtc_id;
 
-   if (video->plane_id <= 0 || video->crtc_id <= 0)
+   if (video->plane_id <= 0 || !video->drm_output)
       return;
+
+   crtc_id = ecore_drm_output_crtc_id_get(video->drm_output);
 
    if (!vfb)
      {
-        drmModeSetPlane (e_devmgr_drm_fd, video->plane_id, video->crtc_id,
+        drmModeSetPlane (e_devmgr_drm_fd, video->plane_id, crtc_id,
                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         return;
      }
@@ -622,13 +653,13 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
    fw = ((unsigned int)new_src_w) << 16;
    fh = ((unsigned int)vfb->visible_r.h) << 16;
 
-   if (drmModeSetPlane(e_devmgr_drm_fd, video->plane_id, video->crtc_id, vfb->mbuf->fb_id, 0,
+   if (drmModeSetPlane(e_devmgr_drm_fd, video->plane_id, crtc_id, vfb->mbuf->fb_id, 0,
                        new_dst_x, video->geo.output_r.y,
                        new_dst_w, vfb->visible_r.h,
                        fx, fy, fw, fh))
      {
          ERR("failed: plane(%d) crtc(%d) pos(%d) on: fb(%d,%dx%d,[%d,%d,%d,%d]=>[%d,%d,%d,%d])",
-             video->plane_id, video->crtc_id, video->zpos,
+             video->plane_id, crtc_id, video->zpos,
              vfb->mbuf->fb_id, vfb->mbuf->width, vfb->mbuf->height,
              new_src_x, vfb->visible_r.y, new_src_w, vfb->visible_r.h,
              new_dst_x, video->geo.output_r.y, new_dst_w, vfb->visible_r.h);
@@ -636,10 +667,19 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
      }
 
    DBG("plane(%d) crtc(%d) pos(%d) on: fb(%d,%dx%d,[%d,%d,%d,%d]=>[%d,%d,%d,%d])",
-       video->plane_id, video->crtc_id, video->zpos,
+       video->plane_id, crtc_id, video->zpos,
        vfb->mbuf->fb_id, vfb->mbuf->width, vfb->mbuf->height,
        new_src_x, vfb->visible_r.y, new_src_w, vfb->visible_r.h,
        new_dst_x, video->geo.output_r.y, new_dst_w, vfb->visible_r.h);
+
+    /* If not DPMS_ON, we call vblank handler directory to do post-process
+     * for video frame buffer handling.
+     */
+   if (e_devicemgr_dpms_get(video->drm_output))
+     {
+        _e_video_vblank_handler(0, 0, 0, (void*)video);
+        return;
+     }
 
    if (!e_devicemgr_drm_get_cur_msc(video->pipe, &target_msc))
      {

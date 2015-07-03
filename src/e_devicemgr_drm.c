@@ -7,6 +7,7 @@
 #include "e_mod_main.h"
 #include "e_devicemgr_privates.h"
 #include "e_devicemgr_drm.h"
+#include "e_devicemgr_dpms.h"
 
 struct drm_handler_info
 {
@@ -492,6 +493,8 @@ Eina_Bool
 e_devicemgr_drm_wait_vblank(int pipe, uint *target_msc, void *data)
 {
    drmVBlank vbl;
+
+   EINA_SAFETY_ON_NULL_RETURN_VAL(target_msc, EINA_FALSE);
 
    vbl.request.type =  DRM_VBLANK_ABSOLUTE | DRM_VBLANK_EVENT;
    if (pipe > 0)

@@ -4,10 +4,13 @@
 #include "e_devicemgr_privates.h"
 #include "e_devicemgr_dpms.h"
 
+#include <xf86drmMode.h>
+
 #define BUS "org.enlightenment.wm"
 #define PATH "/org/enlightenment/wm"
 #define INTERFACE "org.enlightenment.wm.dpms"
 
+static Ecore_Drm_Output *dpms_output;
 static unsigned int dpms_value;
 
 static Eldbus_Connection *conn;
@@ -43,6 +46,7 @@ _e_devicemgr_dpms_set_cb(const Eldbus_Service_Interface *iface, const Eldbus_Mes
 
                DBG("[devicemgr] set DPMS");
 
+               dpms_output = output;
                dpms_value = uint32;
                ecore_drm_output_dpms_set(output, uint32);
                ecore_evas_manual_render_set(e_comp->ee,
@@ -134,4 +138,13 @@ e_devicemgr_dpms_fini(void)
      }
 
    eldbus_shutdown();
+}
+
+unsigned int
+e_devicemgr_dpms_get(Ecore_Drm_Output *output)
+{
+   if (dpms_output == output)
+     return dpms_value;
+
+   return DRM_MODE_DPMS_ON;
 }
