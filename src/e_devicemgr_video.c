@@ -727,10 +727,12 @@ _e_video_cvt_callback(E_Devmgr_Cvt *cvt,
 #if 0
    char file[128];
    static int i;
-   sprintf(file, "dump/in_%dx%d_%03d", src->width, src->height, i);
-   e_devmgr_buffer_dump(src, file, 0);
-   sprintf(file, "dump/out_%dx%d_%03d", dst->width, dst->height, i++);
-   e_devmgr_buffer_dump(dst, file, 0);
+   sprintf(file, "dump/in_%c%c%c%c_%dx%d_%03d",
+           input_buffer->width, input_buffer->height, FOURCC_STR(input_buffer->drmfmt), i);
+   e_devmgr_buffer_dump(input_buffer, file, 0);
+   sprintf(file, "dump/out_%c%c%c%c_%dx%d_%03d",
+           cvt_buffer->width, cvt_buffer->height, FOURCC_STR(cvt_buffer->drmfmt), i++);
+   e_devmgr_buffer_dump(cvt_buffer, file, 0);
 #endif
 }
 
@@ -957,8 +959,9 @@ _e_video_render(E_Video *video)
 #if 0
          char file[128];
          static int i;
-         sprintf(file, "dump/noncvt_%dx%d_%03d", input_buffer->width, input_buffer->height, i++);
-         e_devmgr_buffer_dump(input_buffer, file, 1);
+         sprintf(file, "dump/noncvt_%c%c%c%c_%dx%d_%03d",
+                 input_buffer->width, input_buffer->height, FOURCC_STR(input_buffer->drmfmt), i++);
+         e_devmgr_buffer_dump(input_buffer, file, 0);
 #endif
      }
 
