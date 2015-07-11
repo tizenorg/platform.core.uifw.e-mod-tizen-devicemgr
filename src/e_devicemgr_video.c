@@ -725,12 +725,9 @@ _e_video_cvt_callback(E_Devmgr_Cvt *cvt,
    _e_video_buffer_show(video, cvt_buffer, &video->cvt_r);
 
 #if 0
-   char file[128];
    static int i;
-   sprintf(file, "dump/in_%dx%d_%03d", src->width, src->height, i);
-   e_devmgr_buffer_dump(src, file, 0);
-   sprintf(file, "dump/out_%dx%d_%03d", dst->width, dst->height, i++);
-   e_devmgr_buffer_dump(dst, file, 0);
+   e_devmgr_buffer_dump(input_buffer, "in", i, 0);
+   e_devmgr_buffer_dump(cvt_buffer, "out", i++, 0);
 #endif
 }
 
@@ -954,11 +951,10 @@ _e_video_render(E_Video *video)
         EINA_SAFETY_ON_NULL_GOTO(input_buffer, render_fail);
 
         _e_video_buffer_show(video, input_buffer, &video->geo.input_r);
+
 #if 0
-         char file[128];
          static int i;
-         sprintf(file, "dump/noncvt_%dx%d_%03d", input_buffer->width, input_buffer->height, i++);
-         e_devmgr_buffer_dump(input_buffer, file, 1);
+         e_devmgr_buffer_dump(input_buffer, "render", i++, 0);
 #endif
      }
 

@@ -581,18 +581,22 @@ _dump_png(const char* file, const void * data, int width, int height)
 }
 
 void
-e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *file, Eina_Bool raw)
+e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *prefix, int nth, Eina_Bool raw)
 {
    void *ptr;
    char path[128];
    tbm_bo bo[3];
+   const char *dir = "/tmp/dump";
 
    if (!mbuf) return;
 
    if (IS_RGB(mbuf->drmfmt))
-     snprintf(path, sizeof(path), "/tmp/%s.%s", file, raw?"raw":"png");
+     snprintf(path, sizeof(path), "%s/%s_%c%c%c%c_%dx%d_%03d.%s", dir, prefix,
+              FOURCC_STR(mbuf->drmfmt), mbuf->pitches[0] / 4, mbuf->height,
+              nth, raw?"raw":"png");
    else
-     snprintf(path, sizeof(path), "/tmp/%s.yuv", file);
+     snprintf(path, sizeof(path), "%s/%s_%c%c%c%c_%dx%d_%03d.yuv", dir, prefix,
+              FOURCC_STR(mbuf->drmfmt), mbuf->pitches[0], mbuf->height, nth);
 
    if (mbuf->type == TYPE_TB)
      memcpy(bo, mbuf->b.tizen_buffer->bo, sizeof(tbm_bo)*3);

@@ -101,6 +101,6 @@ void         e_devmgr_buffer_free_func_del  (E_Devmgr_Buf *mbuf, MBuf_Free_Func 
 #define MBUF_IS_CONVERTING(b)       (eina_list_nth((b)->convert_info, 0)?EINA_TRUE:EINA_FALSE)
 
 uint e_devmgr_buffer_get_mills(void);
-void e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *file, Eina_Bool raw);
+void e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *prefix, int nth, Eina_Bool raw);
 
 #endif

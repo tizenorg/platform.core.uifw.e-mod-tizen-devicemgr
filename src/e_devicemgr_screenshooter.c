@@ -262,12 +262,9 @@ _e_tz_screenmirror_cvt_callback(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_B
        }
 
 #if 0
-   char file[128];
-   static int i;
-   sprintf(file, "dump/in_%dx%d_%03d", src->width, src->height, i);
-   e_devmgr_buffer_dump(src, file, 0);
-   sprintf(file, "dump/out_%dx%d_%03d", dst->width, dst->height, i++);
-   e_devmgr_buffer_dump(dst, file, 0);
+   static int i = 0;
+   e_devmgr_buffer_dump(src, "in", i, 0);
+   e_devmgr_buffer_dump(dst, "out", i++, 0);
 #endif
 }
 
