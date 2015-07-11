@@ -427,7 +427,7 @@ failed:
    return EINA_FALSE;
 }
 
-static void
+static Eina_Bool
 _e_video_geometry_info_get(E_Video *video)
 {
    E_Client *ec = video->ec;
@@ -435,26 +435,22 @@ _e_video_geometry_info_get(E_Video *video)
    E_Comp_Wl_Subsurf_Data *sdata;
    int x1, y1, x2, y2;
    int tx1, ty1, tx2, ty2;
+   E_Comp_Wl_Buffer *buffer;
+   E_Drm_Buffer *drm_buffer;
+
+   buffer = e_pixmap_resource_get(video->ec->pixmap);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(buffer, EINA_FALSE);
+
+   drm_buffer = e_drm_buffer_get(buffer->resource);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(drm_buffer, EINA_FALSE);
 
    /* input geometry */
-   switch (vp->buffer.transform)
-     {
-      case WL_OUTPUT_TRANSFORM_NORMAL:
-      case WL_OUTPUT_TRANSFORM_180:
-      case WL_OUTPUT_TRANSFORM_FLIPPED:
-      case WL_OUTPUT_TRANSFORM_FLIPPED_180:
-      default:
-        video->geo.input_w = ec->comp_data->width_from_buffer * vp->buffer.scale;
-        video->geo.input_h = ec->comp_data->height_from_buffer * vp->buffer.scale;
-        break;
-      case WL_OUTPUT_TRANSFORM_90:
-      case WL_OUTPUT_TRANSFORM_270:
-      case WL_OUTPUT_TRANSFORM_FLIPPED_90:
-      case WL_OUTPUT_TRANSFORM_FLIPPED_270:
-        video->geo.input_w = ec->comp_data->height_from_buffer * vp->buffer.scale;
-        video->geo.input_h = ec->comp_data->width_from_buffer * vp->buffer.scale;
-        break;
-     }
+   if (IS_RGB(video->drmfmt))
+      video->geo.input_w = drm_buffer->stride[0] / 4;
+   else
+      video->geo.input_w = drm_buffer->stride[0];
+
+   video->geo.input_h = drm_buffer->height;
 
    if (vp->buffer.src_width == wl_fixed_from_int(-1))
      {
@@ -528,6 +524,8 @@ _e_video_geometry_info_get(E_Video *video)
        video->geo.input_r.x, video->geo.input_r.y, video->geo.input_r.w, video->geo.input_r.h,
        video->geo.output_r.x, video->geo.output_r.y, video->geo.output_r.w, video->geo.output_r.h,
        video->geo.hflip, video->geo.vflip, video->geo.degree);
+
+   return EINA_TRUE;
 }
 
 static void
@@ -1015,7 +1013,8 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
      }
 
    /* 1. get geometry information with buffer scale, transform and viewport */
-   _e_video_geometry_info_get(video);
+   if (!_e_video_geometry_info_get(video))
+     return ECORE_CALLBACK_PASS_ON;
 
    /* 2. In case a buffer is RGB and the size of input/output *WHICH CLIENT SENT*
     * is same, we don't need to convert video. Otherwise, we should need a converter.
@@ -1027,7 +1026,7 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
      if (!video->cvt)
        {
           video->cvt = e_devmgr_cvt_create();
-          EINA_SAFETY_ON_NULL_RETURN_VAL(video->cvt, EINA_FALSE);
+          EINA_SAFETY_ON_NULL_RETURN_VAL(video->cvt, ECORE_CALLBACK_PASS_ON);
 
           e_devmgr_cvt_cb_add(video->cvt, _e_video_cvt_callback, video);
        }
