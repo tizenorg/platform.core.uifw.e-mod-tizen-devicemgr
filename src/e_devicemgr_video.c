@@ -479,8 +479,16 @@ _e_video_geometry_info_get(E_Video *video)
    /* output geometry */
    if ((sdata = ec->comp_data->sub.data))
      {
-        video->geo.output_r.x = sdata->parent->x + sdata->position.x;
-        video->geo.output_r.y = sdata->parent->y + sdata->position.y;
+        if (sdata->parent)
+          {
+             video->geo.output_r.x = sdata->parent->x + sdata->position.x;
+             video->geo.output_r.y = sdata->parent->y + sdata->position.y;
+          }
+        else
+          {
+             video->geo.output_r.x = sdata->position.x;
+             video->geo.output_r.y = sdata->position.y;
+          }
      }
    else
      {
