@@ -4,7 +4,7 @@
 #define E_COMP_WL
 #include <e.h>
 #include <e_drm_buffer_pool.h>
-#include <e_drm_buffer_pool_server_protocol.h>
+#include <tizen-extension-server-protocol.h>
 #include "e_devicemgr_drm.h"
 #include "e_devicemgr_privates.h"
 

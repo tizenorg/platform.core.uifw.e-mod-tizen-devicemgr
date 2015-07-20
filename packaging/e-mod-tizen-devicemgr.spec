@@ -31,6 +31,8 @@ BuildRequires: pkgconfig(libtbm)
 BuildRequires: pkgconfig(libdrm)
 BuildRequires: pkgconfig(libpng)
 BuildRequires: pkgconfig(wayland-server)
+BuildRequires: pkgconfig(screenshooter-server)
+BuildRequires: pkgconfig(tizen-extension-server)
 %endif
 
 %description

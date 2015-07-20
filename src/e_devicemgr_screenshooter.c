@@ -3,8 +3,8 @@
 #include <wayland-server.h>
 #include <Ecore_Wayland.h>
 #include <Ecore_Drm.h>
-#include "e_screenshooter_server_protocol.h"
-#include "e_tizen_screenshooter_server_protocol.h"
+#include <screenshooter-server-protocol.h>
+#include <tizen-extension-server-protocol.h>
 #include "e_devicemgr_screenshooter.h"
 #include "e_devicemgr_buffer.h"
 #include "e_devicemgr_converter.h"
