@@ -18,10 +18,7 @@ module_la_SOURCES      += \
 	e_devicemgr_video.c \
 	e_devicemgr_drm.c \
 	e_devicemgr_buffer.c \
-	e_devicemgr_converter.c \
-	e_devicemgr_window_screen.c \
-	e_devicemgr_window_screen.h \
-	tizen_window_screen-protocol.c
+	e_devicemgr_converter.c
 endif
 
 module_la_LIBADD       =

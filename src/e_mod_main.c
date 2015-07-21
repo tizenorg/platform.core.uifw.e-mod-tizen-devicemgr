@@ -9,7 +9,6 @@
 #include "e_devicemgr_screenshooter.h"
 #include "e_devicemgr_video.h"
 #include "e_devicemgr_drm.h"
-#include "e_devicemgr_window_screen.h"
 #endif
 #include "e_devicemgr_privates.h"
 
@@ -60,12 +59,6 @@ e_modapi_init(E_Module *m)
      }
 
 #ifdef HAVE_WAYLAND_ONLY
-   if (!e_devicemgr_window_screen_init())
-     {
-        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_window_screen_init()..!\n", __FUNCTION__);
-        return NULL;
-     }
-
    if (!e_devicemgr_dpms_init())
      {
         SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_dpms_init()..!\n", __FUNCTION__);
@@ -104,7 +97,6 @@ e_modapi_shutdown(E_Module *m EINA_UNUSED)
    e_devicemgr_screenshooter_fini();
    e_devicemgr_video_fini();
    e_devicemgr_drm_fini();
-   e_devicemgr_window_screen_fini();
 #endif
    e_devicemgr_scale_fini();
    e_devicemgr_input_fini();
