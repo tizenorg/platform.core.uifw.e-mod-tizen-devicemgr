@@ -30,6 +30,7 @@ Requires: libX11
 BuildRequires: pkgconfig(libtbm)
 BuildRequires: pkgconfig(libdrm)
 BuildRequires: pkgconfig(libpng)
+BuildRequires: pkgconfig(pixman-1)
 BuildRequires: pkgconfig(wayland-server)
 BuildRequires: pkgconfig(screenshooter-server)
 BuildRequires: pkgconfig(tizen-extension-server)

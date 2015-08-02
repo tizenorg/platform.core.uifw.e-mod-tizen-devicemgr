@@ -1,17 +1,9 @@
-#define E_COMP_WL
-#include "e.h"
-#include "e_comp_wl.h"
-#include <wayland-server.h>
-#include <Ecore_Drm.h>
-#include "e_devicemgr_dpms.h"
 #include "e_devicemgr_video.h"
-#include "e_devicemgr_buffer.h"
+#include "e_devicemgr_dpms.h"
 #include "e_devicemgr_converter.h"
 
 #define BUFFER_MAX_COUNT   3
 #define MIN_WIDTH   32
-
-typedef struct _E_Video E_Video;
 
 typedef struct _E_Video_Fb
 {
@@ -762,9 +754,6 @@ _e_video_cvt_configure(E_Video *video, E_Devmgr_Buf *cvt_buffer)
    dst.vflip = video->geo.vflip;
    dst.degree = video->geo.degree;
 
-   if (!e_devmgr_cvt_ensure_size (&src, &dst))
-     return EINA_FALSE;
-
    if (!e_devmgr_cvt_property_set(video->cvt, &src, &dst))
      return EINA_FALSE;
 
@@ -996,16 +985,15 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
    EINA_SAFETY_ON_NULL_RETURN_VAL(ev, ECORE_CALLBACK_PASS_ON);
 
    ec = ev->ec;
-   EINA_SAFETY_ON_NULL_RETURN_VAL(ec, ECORE_CALLBACK_PASS_ON);
-   EINA_SAFETY_ON_NULL_RETURN_VAL(ec->pixmap, ECORE_CALLBACK_PASS_ON);
+
+   if (!ec || !ec->pixmap) return ECORE_CALLBACK_PASS_ON;
 
    buffer = e_pixmap_resource_get(ec->pixmap);
 
    /* buffer can be NULL in case of camera/video's mode change. Do nothing and
     * keep previous frame in this case.
     */
-   if (!buffer)
-      return ECORE_CALLBACK_PASS_ON;
+   if (!buffer) return ECORE_CALLBACK_PASS_ON;
 
    /* not interested in other buffer type */
    if (buffer->type != E_COMP_WL_BUFFER_TYPE_DRM)
@@ -1171,4 +1159,58 @@ e_devicemgr_video_init(void)
 void
 e_devicemgr_video_fini(void)
 {
+}
+
+Eina_List*
+e_devicemgr_video_list_get(void)
+{
+   return video_list;
+}
+
+E_Video*
+e_devicemgr_video_get(struct wl_resource *surface_resource)
+{
+   E_Video *video;
+   Eina_List *l;
+
+   EINA_SAFETY_ON_NULL_RETURN_VAL(surface_resource, NULL);
+
+   EINA_LIST_FOREACH(video_list, l, video)
+     {
+        E_Comp_Wl_Client_Data *cdata;
+
+        if (!video->ec) continue;
+        cdata = e_pixmap_cdata_get(video->ec->pixmap);
+        if (!cdata) continue;
+        if (cdata->wl_surface == surface_resource)
+          return video;
+     }
+
+   return NULL;
+
+}
+
+E_Devmgr_Buf*
+e_devicemgr_video_fb_get(E_Video *video)
+{
+   EINA_SAFETY_ON_NULL_RETURN_VAL(video, NULL);
+
+   return (video->current_fb) ? video->current_fb->mbuf : NULL;
+}
+
+void
+e_devicemgr_video_pos_get(E_Video *video, int *x, int *y)
+{
+   EINA_SAFETY_ON_NULL_RETURN(video);
+
+   if (x) *x = video->geo.output_r.x;
+   if (y) *y = video->geo.output_r.y;
+}
+
+Ecore_Drm_Output*
+e_devicemgr_video_drm_output_get(E_Video *video)
+{
+   EINA_SAFETY_ON_NULL_RETURN_VAL(video, NULL);
+
+   return video->drm_output;
 }

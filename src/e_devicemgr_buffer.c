@@ -1,5 +1,7 @@
+#include <sys/mman.h>
 #include <e.h>
 #include <Ecore_Drm.h>
+#include <pixman.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 #include <exynos_drm.h>
@@ -173,6 +175,8 @@ _e_devmgr_buffer_create(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char
             mbuf->handles[i] = tbm_bo_get_handle(tizen_buffer->bo[i], TBM_DEVICE_DEFAULT).u32;
             mbuf->pitches[i] = tizen_buffer->drm_buffer->stride[i];
             mbuf->offsets[i] = tizen_buffer->drm_buffer->offset[i];
+            if (!secure)
+              mbuf->ptrs[i] = tbm_bo_get_handle(tizen_buffer->bo[i], TBM_DEVICE_CPU).ptr;
           }
      }
 
@@ -230,30 +234,91 @@ create_fail:
 }
 
 E_Devmgr_Buf*
-_e_devmgr_buffer_create_ext(uint handle, int width, int height, uint drmfmt, const char *func)
+_e_devmgr_buffer_create_shm(struct wl_shm_buffer *shm_buffer, const char *func)
 {
    E_Devmgr_Buf *mbuf = NULL;
+   uint stamp;
+   uint32_t format;
+
+   EINA_SAFETY_ON_NULL_RETURN_VAL(shm_buffer, NULL);
+
+   mbuf = calloc(1, sizeof(E_Devmgr_Buf));
+   EINA_SAFETY_ON_FALSE_GOTO(mbuf != NULL, create_fail);
+
+   format = wl_shm_buffer_get_format(shm_buffer);
+
+   if (format == WL_SHM_FORMAT_ARGB8888)
+     mbuf->drmfmt = DRM_FORMAT_ARGB8888;
+   else if (format == WL_SHM_FORMAT_XRGB8888)
+     mbuf->drmfmt = DRM_FORMAT_XRGB8888;
+   else
+     mbuf->drmfmt = format;
+   mbuf->width = wl_shm_buffer_get_width(shm_buffer);
+   mbuf->height = wl_shm_buffer_get_height(shm_buffer);
+
+   mbuf->pitches[0] = wl_shm_buffer_get_stride(shm_buffer);
+   mbuf->ptrs[0] = wl_shm_buffer_get_data(shm_buffer);
+
+   mbuf->type = TYPE_SHM;
+   mbuf->b.shm_buffer = shm_buffer;
+
+   mbuf_lists = eina_list_append(mbuf_lists, mbuf);
+
+   stamp = e_devmgr_buffer_get_mills();
+   while (_find_mbuf(stamp))
+     stamp++;
+   mbuf->stamp = stamp;
+
+   mbuf->func = strdup(func);
+   mbuf->ref_cnt = 1;
+
+   DBG("%d(%d) create: %s", mbuf->stamp, mbuf->ref_cnt, func);
+
+   return mbuf;
+
+create_fail:
+   e_devmgr_buffer_free(mbuf);
+
+   return NULL;
+}
+
+E_Devmgr_Buf*
+_e_devmgr_buffer_create_hnd(uint handle, int width, int height, const char *func)
+{
+   E_Devmgr_Buf *mbuf = NULL;
+   struct drm_mode_map_dumb arg = {0,};
    uint stamp;
 
    EINA_SAFETY_ON_FALSE_RETURN_VAL(handle > 0, NULL);
    EINA_SAFETY_ON_FALSE_RETURN_VAL(width > 0, NULL);
    EINA_SAFETY_ON_FALSE_RETURN_VAL(height > 0, NULL);
-   if (!IS_RGB(drmfmt))
-     {
-        ERR("not supported format: %c%c%c%c", FOURCC_STR(drmfmt));
-        return NULL;
-     }
 
    mbuf = calloc(1, sizeof(E_Devmgr_Buf));
    EINA_SAFETY_ON_FALSE_GOTO(mbuf != NULL, create_fail);
 
-   mbuf->drmfmt = drmfmt;
+   mbuf->drmfmt = DRM_FORMAT_ARGB8888;
    mbuf->width = width;
    mbuf->height = height;
    mbuf->pitches[0] = (width << 2);
 
-   mbuf->type = TYPE_EXT;
-   mbuf->handles[0] = handle;
+   mbuf->type = TYPE_HND;
+   mbuf->b.handle = mbuf->handles[0] = arg.handle = handle;
+
+   if (drmIoctl(e_devmgr_drm_fd, DRM_IOCTL_MODE_MAP_DUMB, &arg))
+     {
+        ERR("cannot map handle(%d)\n", handle);
+        free(mbuf);
+        return NULL;
+     }
+
+   mbuf->ptrs[0] = mmap(NULL, mbuf->width * mbuf->height * 4,
+                        PROT_READ|PROT_WRITE, MAP_SHARED, e_devmgr_drm_fd, arg.offset);
+   if (mbuf->ptrs[0] == MAP_FAILED)
+      {
+         ERR("cannot mmap handle(%d)\n", handle);
+         free(mbuf);
+         return NULL;
+      }
 
    mbuf_lists = eina_list_append(mbuf_lists, mbuf);
 
@@ -300,6 +365,9 @@ _e_devmgr_buffer_alloc_fb(int width, int height, Eina_Bool secure, const char *f
 
    mbuf->handles[0] = tbm_bo_get_handle(mbuf->b.bo[0], TBM_DEVICE_DEFAULT).u32;
    EINA_SAFETY_ON_FALSE_GOTO(mbuf->handles[0] > 0, alloc_fail);
+
+   if (!secure)
+     mbuf->ptrs[0] = tbm_bo_get_handle(mbuf->b.bo[0], TBM_DEVICE_CPU).ptr;
 
    if (drmModeAddFB2(e_devmgr_drm_fd, mbuf->width, mbuf->height, mbuf->drmfmt,
                      mbuf->handles, mbuf->pitches, mbuf->offsets, &mbuf->fb_id, 0))
@@ -398,6 +466,9 @@ _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func)
         drmModeRmFB(e_devmgr_drm_fd, mbuf->fb_id);
      }
 
+   if (mbuf->type == TYPE_HND && mbuf->ptrs[0])
+      munmap(mbuf->ptrs[0], mbuf->width * mbuf->height * 4);
+
    for (i = 0; i < 4; i++)
      {
         if (mbuf->type == TYPE_BO && mbuf->b.bo[i])
@@ -492,6 +563,127 @@ e_devmgr_buffer_free_func_del(E_Devmgr_Buf *mbuf, MBuf_Free_Func func, void *dat
    free(info);
 }
 
+static pixman_format_code_t
+_e_devmgr_buffer_pixman_format_get(E_Devmgr_Buf *mbuf)
+{
+   switch(mbuf->drmfmt)
+     {
+      case DRM_FORMAT_YUV422:
+        return PIXMAN_yuy2;
+      case DRM_FORMAT_YUV420:
+        return PIXMAN_yv12;
+      case DRM_FORMAT_ARGB8888:
+        return PIXMAN_a8r8g8b8;
+      case DRM_FORMAT_XRGB8888:
+        return PIXMAN_x8r8g8b8;
+      default:
+        return 0;
+     }
+   return 0;
+}
+
+void
+e_devmgr_buffer_convert(E_Devmgr_Buf *srcbuf, E_Devmgr_Buf *dstbuf,
+                        int sx, int sy, int sw, int sh,
+                        int dx, int dy, int dw, int dh,
+                        Eina_Bool over, int rotate, int hflip, int vflip)
+{
+   pixman_image_t *src_img = NULL, *dst_img = NULL;
+   pixman_format_code_t src_format, dst_format;
+   double scale_x, scale_y;
+   int rotate_step;
+   pixman_transform_t t;
+   struct pixman_f_transform ft;
+   pixman_op_t op;
+   int src_stride, dst_stride;
+   int buf_width;
+
+   /* not handle buffers which have 2 more gem handles */
+   EINA_SAFETY_ON_NULL_GOTO(srcbuf->ptrs[0], cant_convert);
+   EINA_SAFETY_ON_NULL_GOTO(dstbuf->ptrs[0], cant_convert);
+   EINA_SAFETY_ON_FALSE_RETURN(!srcbuf->ptrs[1]);
+   EINA_SAFETY_ON_FALSE_RETURN(!dstbuf->ptrs[1]);
+
+   src_format = _e_devmgr_buffer_pixman_format_get(srcbuf);
+   EINA_SAFETY_ON_FALSE_GOTO(src_format > 0, cant_convert);
+   dst_format = _e_devmgr_buffer_pixman_format_get(dstbuf);
+   EINA_SAFETY_ON_FALSE_GOTO(dst_format > 0, cant_convert);
+
+   buf_width = IS_RGB(srcbuf->drmfmt)?(srcbuf->pitches[0]/4):srcbuf->pitches[0];
+   src_stride = buf_width * (PIXMAN_FORMAT_BPP(src_format) / 8);
+   src_img = pixman_image_create_bits(src_format, buf_width, srcbuf->height,
+                                      (uint32_t*)srcbuf->ptrs[0], src_stride);
+   EINA_SAFETY_ON_NULL_GOTO(src_img, cant_convert);
+
+   buf_width = IS_RGB(dstbuf->drmfmt)?(dstbuf->pitches[0]/4):dstbuf->pitches[0];
+   dst_stride = buf_width * (PIXMAN_FORMAT_BPP(dst_format) / 8);
+   dst_img = pixman_image_create_bits(dst_format, buf_width, dstbuf->height,
+                                      (uint32_t*)dstbuf->ptrs[0], dst_stride);
+   EINA_SAFETY_ON_NULL_GOTO(dst_img, cant_convert);
+
+   pixman_f_transform_init_identity(&ft);
+
+   if (hflip)
+     {
+        pixman_f_transform_scale(&ft, NULL, -1, 1);
+        pixman_f_transform_translate(&ft, NULL, dw, 0);
+     }
+
+   if (vflip)
+     {
+        pixman_f_transform_scale(&ft, NULL, 1, -1);
+        pixman_f_transform_translate(&ft, NULL, 0, dh);
+     }
+
+   rotate_step = (rotate + 360) / 90 % 4;
+   if (rotate_step > 0)
+     {
+        int c, s, tx = 0, ty = 0;
+        switch (rotate_step)
+          {
+           case 1:
+              c = 0, s = -1, tx = -dw;
+              break;
+           case 2:
+              c = -1, s = 0, tx = -dw, ty = -dh;
+              break;
+           case 3:
+              c = 0, s = 1, ty = -dh;
+              break;
+           default:
+              c = 0, s = 0;
+              break;
+          }
+        pixman_f_transform_translate(&ft, NULL, tx, ty);
+        pixman_f_transform_rotate(&ft, NULL, c, s);
+     }
+
+   if (rotate_step % 2 == 0)
+     {
+        scale_x = (double)sw / dw;
+        scale_y = (double)sh / dh;
+     }
+   else
+     {
+        scale_x = (double)sw / dh;
+        scale_y = (double)sh / dw;
+     }
+
+   pixman_f_transform_scale(&ft, NULL, scale_x, scale_y);
+   pixman_f_transform_translate(&ft, NULL, sx, sy);
+   pixman_transform_from_pixman_f_transform(&t, &ft);
+   pixman_image_set_transform(src_img, &t);
+
+   if (!over) op = PIXMAN_OP_SRC;
+   else op = PIXMAN_OP_OVER;
+
+   pixman_image_composite(op, src_img, NULL, dst_img, 0, 0, 0, 0,
+                          dx, dy, dw, dh);
+cant_convert:
+   if (src_img) pixman_image_unref(src_img);
+   if (dst_img) pixman_image_unref(dst_img);
+}
+
 uint
 e_devmgr_buffer_get_mills(void)
 {
@@ -583,12 +775,16 @@ _dump_png(const char* file, const void * data, int width, int height)
 void
 e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *prefix, int nth, Eina_Bool raw)
 {
-   void *ptr;
    char path[128];
-   tbm_bo bo[3];
+   tbm_bo bo[3] = {0,};
    const char *dir = "/tmp/dump";
 
    if (!mbuf) return;
+   if (mbuf->secure)
+     {
+        DBG("can't dump a secure buffer");
+        return;
+     }
 
    if (IS_RGB(mbuf->drmfmt))
      snprintf(path, sizeof(path), "%s/%s_%c%c%c%c_%dx%d_%03d.%s", dir, prefix,
@@ -598,23 +794,12 @@ e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *prefix, int nth, Eina_Bool 
      snprintf(path, sizeof(path), "%s/%s_%c%c%c%c_%dx%d_%03d.yuv", dir, prefix,
               FOURCC_STR(mbuf->drmfmt), mbuf->pitches[0], mbuf->height, nth);
 
-   if (mbuf->type == TYPE_TB)
-     memcpy(bo, mbuf->b.tizen_buffer->bo, sizeof(tbm_bo)*3);
-   else if (mbuf->type == TYPE_BO)
-     memcpy(bo, mbuf->b.bo, sizeof(tbm_bo)*3);
-   else
-     {
-        DBG("not support");
-        return;
-     }
-
-   ptr = tbm_bo_get_handle(bo[0], TBM_DEVICE_CPU).ptr;
    if (IS_RGB(mbuf->drmfmt))
      {
         if (raw)
-          _dump_raw(path, ptr, mbuf->width * mbuf->height * 4, NULL, 0);
+          _dump_raw(path, mbuf->ptrs[0], mbuf->pitches[0] * mbuf->height, NULL, 0);
         else
-          _dump_png(path, ptr, mbuf->width, mbuf->height);
+          _dump_png(path, mbuf->ptrs[0], mbuf->pitches[0] / 4, mbuf->height);
      }
    else
      {
@@ -636,11 +821,10 @@ e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *prefix, int nth, Eina_Bool 
                 break;
           }
         if (!bo[1])
-          _dump_raw(path, ptr, size, NULL, 0);
+          _dump_raw(path, mbuf->ptrs[0], size, NULL, 0);
         else
-          _dump_raw(path, ptr, mbuf->pitches[0] * mbuf->height,
-                    tbm_bo_get_handle(bo[1], TBM_DEVICE_CPU).ptr,
-                    mbuf->pitches[1] * mbuf->height);
+          _dump_raw(path, mbuf->ptrs[0], mbuf->pitches[0] * mbuf->height,
+                    mbuf->ptrs[1], mbuf->pitches[1] * mbuf->height);
      }
 
    DBG("dump %s", path);

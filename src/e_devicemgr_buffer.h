@@ -22,14 +22,14 @@ typedef enum _E_Devmgr_Buf_Type
 {
    TYPE_TB,
    TYPE_BO,
-   TYPE_EXT,
+   TYPE_SHM,
+   TYPE_HND,
 } E_Devmgr_Buf_Type;
 
 typedef enum
 {
    TYPE_NONE,
    TYPE_RGB,
-   TYPE_YUV444,
    TYPE_YUV422,
    TYPE_YUV420,
 } E_Devmgr_Buf_Color_Type;
@@ -47,11 +47,14 @@ typedef struct _E_Devmgr_Buf
    uint pitches[4];
    uint offsets[4];
 
+   /* user address */
+   void *ptrs[4];
+
    E_Devmgr_Buf_Type type;
    union {
-      /* in case of surface's buffer */
+      struct wl_shm_buffer *shm_buffer;
       Tizen_Buffer *tizen_buffer;
-      /* in case of converting */
+      uint handle;
       tbm_bo bo[4];
    } b;
    /* for tizen_buffer */
@@ -78,7 +81,8 @@ E_Devmgr_Buf_Color_Type e_devmgr_buffer_color_type (unsigned int drmfmt);
 
 E_Devmgr_Buf* _e_devmgr_buffer_create    (Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_create_fb (Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char *func);
-E_Devmgr_Buf* _e_devmgr_buffer_create_ext(uint handle, int width, int height, uint drmfmt, const char *func);
+E_Devmgr_Buf* _e_devmgr_buffer_create_shm(struct wl_shm_buffer *shm_buffer, const char *func);
+E_Devmgr_Buf* _e_devmgr_buffer_create_hnd(uint handle, int width, int height, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_alloc_fb  (int width, int height, Eina_Bool secure, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_ref    (E_Devmgr_Buf *mbuf, const char *func);
 void          _e_devmgr_buffer_unref  (E_Devmgr_Buf *mbuf, const char *func);
@@ -91,7 +95,8 @@ void         e_devmgr_buffer_free_func_del  (E_Devmgr_Buf *mbuf, MBuf_Free_Func 
 
 #define e_devmgr_buffer_create(t,d)      _e_devmgr_buffer_create(t,d,__FUNCTION__)
 #define e_devmgr_buffer_create_fb(t,d)   _e_devmgr_buffer_create_fb(t,d,__FUNCTION__)
-#define e_devmgr_buffer_create_ext(d,w,h,f)    _e_devmgr_buffer_create_ext(d,w,h,f,__FUNCTION__)
+#define e_devmgr_buffer_create_shm(s)  _e_devmgr_buffer_create_shm(s,__FUNCTION__)
+#define e_devmgr_buffer_create_hnd(d,w,h)    _e_devmgr_buffer_create_hnd(d,w,h,__FUNCTION__)
 #define e_devmgr_buffer_alloc_fb(w,h,d)  _e_devmgr_buffer_alloc_fb(w,h,d,__FUNCTION__)
 #define e_devmgr_buffer_ref(b)    _e_devmgr_buffer_ref(b,__FUNCTION__)
 #define e_devmgr_buffer_unref(b)  _e_devmgr_buffer_unref(b,__FUNCTION__)
@@ -102,5 +107,9 @@ void         e_devmgr_buffer_free_func_del  (E_Devmgr_Buf *mbuf, MBuf_Free_Func 
 
 uint e_devmgr_buffer_get_mills(void);
 void e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *prefix, int nth, Eina_Bool raw);
+void e_devmgr_buffer_convert(E_Devmgr_Buf *srcbuf, E_Devmgr_Buf *dstbuf,
+                             int sx, int sy, int sw, int sh,
+                             int dx, int dy, int dw, int dh,
+                             Eina_Bool over, int rotate, int hflip, int vflip);
 
 #endif
