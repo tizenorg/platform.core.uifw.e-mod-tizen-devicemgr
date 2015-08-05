@@ -78,11 +78,13 @@ typedef struct _E_Devmgr_Buf
 } E_Devmgr_Buf;
 
 E_Devmgr_Buf_Color_Type e_devmgr_buffer_color_type (unsigned int drmfmt);
+int e_devmgr_buf_image_attr(uint drmfmt, int w, int h, uint *pitches, uint *lengths);
 
 E_Devmgr_Buf* _e_devmgr_buffer_create    (Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_create_fb (Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_create_shm(struct wl_shm_buffer *shm_buffer, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_create_hnd(uint handle, int width, int height, const char *func);
+E_Devmgr_Buf* _e_devmgr_buffer_alloc     (int width, int height, uint drmfmt, Eina_Bool secure, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_alloc_fb  (int width, int height, Eina_Bool secure, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_ref    (E_Devmgr_Buf *mbuf, const char *func);
 void          _e_devmgr_buffer_unref  (E_Devmgr_Buf *mbuf, const char *func);
@@ -97,6 +99,7 @@ void         e_devmgr_buffer_free_func_del  (E_Devmgr_Buf *mbuf, MBuf_Free_Func 
 #define e_devmgr_buffer_create_fb(t,d)   _e_devmgr_buffer_create_fb(t,d,__FUNCTION__)
 #define e_devmgr_buffer_create_shm(s)  _e_devmgr_buffer_create_shm(s,__FUNCTION__)
 #define e_devmgr_buffer_create_hnd(d,w,h)    _e_devmgr_buffer_create_hnd(d,w,h,__FUNCTION__)
+#define e_devmgr_buffer_alloc(w,h,f,d)     _e_devmgr_buffer_alloc(w,h,f,d,__FUNCTION__)
 #define e_devmgr_buffer_alloc_fb(w,h,d)  _e_devmgr_buffer_alloc_fb(w,h,d,__FUNCTION__)
 #define e_devmgr_buffer_ref(b)    _e_devmgr_buffer_ref(b,__FUNCTION__)
 #define e_devmgr_buffer_unref(b)  _e_devmgr_buffer_unref(b,__FUNCTION__)
@@ -111,5 +114,7 @@ void e_devmgr_buffer_convert(E_Devmgr_Buf *srcbuf, E_Devmgr_Buf *dstbuf,
                              int sx, int sy, int sw, int sh,
                              int dx, int dy, int dw, int dh,
                              Eina_Bool over, int rotate, int hflip, int vflip);
+
+Eina_Bool e_devmgr_buffer_copy(E_Devmgr_Buf *srcbuf, E_Devmgr_Buf *dstbuf);
 
 #endif

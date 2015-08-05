@@ -40,6 +40,7 @@ typedef struct _E_Devmgr_CvtBuf
    uint  begin;
 
    E_Devmgr_Buf  *mbuf;
+   E_Devmgr_Buf  *org_mbuf;
 
    E_Devmgr_Cvt *cvt;
    E_Comp_Wl_Buffer_Ref buffer_ref;
@@ -146,28 +147,6 @@ set_mbuf_converting(E_Devmgr_Buf *mbuf, E_Devmgr_Cvt *cvt, Eina_Bool converting)
         return EINA_TRUE;
      }
 }
-
-#if 0
-static void
-_printBufIndices(E_Devmgr_Cvt *cvt, E_Devmgr_CvtType type, char *str)
-{
-   Eina_List *bufs, *l;
-   E_Devmgr_CvtBuf *cbuf;
-   char nums[128];
-
-   bufs = (type == CVT_TYPE_SRC) ? cvt->src_bufs : cvt->dst_bufs;
-
-   snprintf(nums, 128, "bufs:");
-
-   EINA_LIST_FOREACH(bufs, l, cbuf)
-     {
-       snprintf(nums, 128, "%s %d", nums, cbuf->index);
-     }
-
-   ErrorF("%s: cvt(%p) %s(%s). ", str, cvt,
-          (type == CVT_TYPE_SRC)?"SRC":"DST", nums);
-}
-#endif
 
 static void
 _e_devmgr_cvt_cb_tb_destroy(struct wl_listener *listener, void *data)
@@ -287,11 +266,6 @@ _e_devmgr_cvt_queue(E_Devmgr_Cvt *cvt, E_Devmgr_CvtBuf *cbuf)
         wl_signal_add(&buffer->destroy_signal, &cbuf->buffer_destroy_listener);
      }
 
-#if 0
-   if (cbuf->type == CVT_TYPE_SRC)
-     _printBufIndices(cvt, CVT_TYPE_SRC, "in");
-#endif
-
    DBG("queue: cvt(%p), cbuf(%p), type(%d), index(%d) mbuf(%p) converting(%d)",
        cvt, cbuf, cbuf->type, index, cbuf->mbuf, MBUF_IS_CONVERTING(cbuf->mbuf));
 
@@ -358,11 +332,7 @@ _e_devmgr_cvt_dequeued(E_Devmgr_Cvt *cvt, E_Devmgr_CvtType type, int index)
         e_comp_wl_buffer_reference(&cbuf->buffer_ref, NULL);
      }
 
-#if 0
-   if (cbuf->type == CVT_TYPE_SRC)
-     _printBufIndices(cvt, CVT_TYPE_SRC, "out");
-#endif
-
+   e_devmgr_buffer_unref(cbuf->org_mbuf);
    e_devmgr_buffer_unref(cbuf->mbuf);
    free(cbuf);
 }
@@ -445,12 +415,6 @@ _e_devmgr_cvt_ipp_handler(unsigned int prop_id, unsigned int *buf_idx,
 
    DBG("cvt(%p) index(%d, %d)", cvt, buf_idx[EXYNOS_DRM_OPS_SRC], buf_idx[EXYNOS_DRM_OPS_DST]);
 
-#if 0
-   char temp[64];
-   snprintf(temp, 64, "%d,%d", buf_idx[EXYNOS_DRM_OPS_SRC], buf_idx[EXYNOS_DRM_OPS_DST]);
-   _printBufIndices(cvt, CVT_TYPE_SRC, temp);
-#endif
-
 #if DEQUEUE_FORCE
    E_Devmgr_CvtBuf *cbuf;
    Eina_List *l;
@@ -508,6 +472,14 @@ e_devmgr_cvt_ensure_size(E_Devmgr_Cvt_Prop *src, E_Devmgr_Cvt_Prop *dst)
         EINA_SAFETY_ON_FALSE_RETURN_VAL(src->height >= 8, EINA_FALSE);
         EINA_SAFETY_ON_FALSE_RETURN_VAL(src->crop.w >= 16, EINA_FALSE);
         EINA_SAFETY_ON_FALSE_RETURN_VAL(src->crop.h >= 8, EINA_FALSE);
+
+        if (src->width % 16)
+          {
+             int new_width = ROUNDUP(src->width, 16);
+             DBG("src's width : %d to %d", src->width, new_width);
+             src->width = new_width;
+          }
+
         if (type == TYPE_YUV420 && src->height % 2)
           {
              ERR("src's height(%d) is not multiple of 2!!!", src->height);
@@ -655,11 +627,6 @@ e_devmgr_cvt_property_set(E_Devmgr_Cvt *cvt, E_Devmgr_Cvt_Prop *src, E_Devmgr_Cv
    if (!e_devmgr_cvt_ensure_size(src, dst))
      return EINA_FALSE;
 
-   if (dst->crop.x + dst->crop.w > dst->width)
-     {
-         DBG("dst(%d+%d > %d). !", dst->crop.x, dst->crop.w, dst->width);
-     }
-
    memcpy(&cvt->props[CVT_TYPE_SRC], src, sizeof(E_Devmgr_Cvt_Prop));
    memcpy(&cvt->props[CVT_TYPE_DST], dst, sizeof(E_Devmgr_Cvt_Prop));
 
@@ -693,6 +660,7 @@ Eina_Bool
 e_devmgr_cvt_convert(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst)
 {
    E_Devmgr_CvtBuf *src_cbuf = NULL, *dst_cbuf = NULL;
+   int buf_width;
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(cvt, EINA_FALSE);
    EINA_SAFETY_ON_NULL_RETURN_VAL(src, EINA_FALSE);
@@ -708,9 +676,50 @@ e_devmgr_cvt_convert(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst)
    dst_cbuf = calloc(1, sizeof(E_Devmgr_CvtBuf));
    EINA_SAFETY_ON_FALSE_GOTO(dst_cbuf != NULL, fail);
 
-   src_cbuf->type = CVT_TYPE_SRC;
-   src_cbuf->mbuf = e_devmgr_buffer_ref(src);
-   memcpy(src_cbuf->handles, src->handles, sizeof(uint) * 4);
+   if (IS_RGB(src->drmfmt))
+     buf_width = src->pitches[0] / 4;
+   else
+     buf_width = src->pitches[0];
+
+   /* cvt->props[CVT_TYPE_SRC].width has been rounded up by 16  */
+   if (cvt->props[CVT_TYPE_SRC].width == buf_width)
+     {
+        src_cbuf->type = CVT_TYPE_SRC;
+        src_cbuf->mbuf = e_devmgr_buffer_ref(src);
+        memcpy(src_cbuf->handles, src->handles, sizeof(uint) * 4);
+     }
+   else
+     {
+        E_Devmgr_Buf *tmp;
+
+        tmp = e_devmgr_buffer_alloc(src->width, src->height, src->drmfmt, 0);
+        EINA_SAFETY_ON_FALSE_GOTO(tmp != NULL, fail);
+
+        if (IS_RGB(src->drmfmt))
+          e_devmgr_buffer_convert(src, tmp,
+                                  0, 0, src->width, src->height,
+                                  0, 0, src->width, src->height,
+                                  EINA_TRUE, 0, 0, 0);
+        else
+          {
+             if (!e_devmgr_buffer_copy(src, tmp))
+               {
+                  e_devmgr_buffer_unref(tmp);
+                  goto fail;
+               }
+
+#if 0
+             static int i;
+             e_devmgr_buffer_dump(src, "src", i, 0);
+             e_devmgr_buffer_dump(tmp, "tmp", i++, 0);
+#endif
+          }
+
+        src_cbuf->type = CVT_TYPE_SRC;
+        src_cbuf->org_mbuf = e_devmgr_buffer_ref(src);
+        src_cbuf->mbuf = tmp;
+        memcpy(src_cbuf->handles, tmp->handles, sizeof(uint) * 4);
+     }
 
    dst_cbuf->type = CVT_TYPE_DST;
    dst_cbuf->mbuf = e_devmgr_buffer_ref(dst);
@@ -768,11 +777,13 @@ fail_queue_dst:
 fail:
    if (src_cbuf)
      {
+        e_devmgr_buffer_unref(src_cbuf->org_mbuf);
         e_devmgr_buffer_unref(src_cbuf->mbuf);
         free(src_cbuf);
      }
    if (dst_cbuf)
      {
+        e_devmgr_buffer_unref(dst_cbuf->org_mbuf);
         e_devmgr_buffer_unref(dst_cbuf->mbuf);
         free(dst_cbuf);
      }

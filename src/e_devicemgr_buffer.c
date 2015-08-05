@@ -13,6 +13,13 @@
 
 #define PNG_DEPTH 8
 
+#define ALIGN_TO_16B(x)    ((((x) + (1 <<  4) - 1) >>  4) <<  4)
+#define ALIGN_TO_32B(x)    ((((x) + (1 <<  5) - 1) >>  5) <<  5)
+#define ALIGN_TO_128B(x)   ((((x) + (1 <<  7) - 1) >>  7) <<  7)
+#define ALIGN_TO_2KB(x)    ((((x) + (1 << 11) - 1) >> 11) << 11)
+#define ALIGN_TO_8KB(x)    ((((x) + (1 << 13) - 1) >> 13) << 13)
+#define ALIGN_TO_64KB(x)   ((((x) + (1 << 16) - 1) >> 16) << 16)
+
 #define MBUF_RETURN_IF_FAIL(cond) \
    {if (!(cond)) { ERR("%d: '%s' failed. (%s)", mbuf->stamp, #cond, func); return; }}
 #define MBUF_RETURN_VAL_IF_FAIL(cond, val) \
@@ -47,6 +54,71 @@ static void _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func);
 #define e_devmgr_buffer_free(b) _e_devmgr_buffer_free(b,__FUNCTION__)
 
 static Eina_List *mbuf_lists;
+
+int
+e_devmgr_buf_image_attr(uint drmfmt, int w, int h, uint *pitches, uint *lengths)
+{
+   int size = 0, tmp = 0;
+
+   switch (drmfmt)
+     {
+      case DRM_FORMAT_ARGB8888:
+      case DRM_FORMAT_XRGB8888:
+        size += (w << 2);
+        if (pitches) pitches[0] = size;
+        size *= h;
+        if (lengths) lengths[0] = size;
+        break;
+      /* YUV422, packed */
+      case DRM_FORMAT_YUV422:
+      case DRM_FORMAT_YVU422:
+        size = w << 1;
+        if (pitches) pitches[0] = size;
+        size *= h;
+        if (lengths) lengths[0] = size;
+        break;
+      /* YUV420, 3 planar */
+      case DRM_FORMAT_YUV420:
+      case DRM_FORMAT_YVU420:
+        size = ROUNDUP(w, 4);
+        if (pitches) pitches[0] = size;
+        size *= h;
+        if (lengths) lengths[0] = size;
+        tmp = ROUNDUP((w >> 1), 4);
+        if (pitches) pitches[1] = pitches[2] = tmp;
+        tmp *= (h >> 1);
+        size += tmp;
+        if (lengths) lengths[1] = tmp;
+        size += tmp;
+        if (lengths) lengths[2] = tmp;
+        break;
+      /* YUV420, 2 planar */
+      case DRM_FORMAT_NV12:
+      case DRM_FORMAT_NV21:
+        if (pitches) pitches[0] = w;
+        size = w * h;
+        if (lengths) lengths[0] = size;
+        if (pitches) pitches[1] = w;
+        tmp = (w) * (h >> 1);
+        size += tmp;
+        if (lengths) lengths[1] = tmp;
+        break;
+      /* YUV420, 2 planar, tiled */
+      case DRM_FORMAT_NV12MT:
+        if (pitches) pitches[0] = w;
+        size = ALIGN_TO_8KB(ALIGN_TO_128B(w) * ALIGN_TO_32B(h));
+        if (lengths) lengths[0] = size;
+        if (pitches) pitches[1] = w;
+        tmp = ALIGN_TO_8KB(ALIGN_TO_128B(w) * ALIGN_TO_32B(h >> 1));
+        size += tmp;
+        if (lengths) lengths[1] = tmp;
+        break;
+      default:
+        return 0;
+     }
+
+   return size;
+}
 
 static tbm_bo
 _e_devmgr_buf_normal_alloc(int size, int flags)
@@ -151,7 +223,7 @@ E_Devmgr_Buf*
 _e_devmgr_buffer_create(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char *func)
 {
    E_Devmgr_Buf *mbuf = NULL;
-   uint stamp;
+   uint stamp, pitches[4] = {0,};
    int i;
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(tizen_buffer, NULL);
@@ -180,6 +252,11 @@ _e_devmgr_buffer_create(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char
           }
      }
 
+   e_devmgr_buf_image_attr(mbuf->drmfmt, mbuf->width, mbuf->height, pitches, NULL);
+   EINA_SAFETY_ON_FALSE_GOTO(mbuf->pitches[0] == pitches[0], create_fail);
+
+   memcpy(mbuf->pitches, pitches, sizeof(uint) * 4);
+
    mbuf->type = TYPE_TB;
    mbuf->b.tizen_buffer = tizen_buffer;
 
@@ -195,7 +272,11 @@ _e_devmgr_buffer_create(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char
    mbuf->func = strdup(func);
    mbuf->ref_cnt = 1;
 
-   DBG("%d(%d) create: %s", mbuf->stamp, mbuf->ref_cnt, func);
+   DBG("%d: %dx%d, %c%c%c%c, (%d,%d,%d), (%d,%d,%d), (%d,%d,%d): %s",
+       mbuf->stamp, mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
+       mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
+       mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
+       mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2], func);
 
    return mbuf;
 
@@ -212,20 +293,15 @@ _e_devmgr_buffer_create_fb(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const c
 
    if (drmModeAddFB2(e_devmgr_drm_fd, mbuf->width, mbuf->height, mbuf->drmfmt,
                      mbuf->handles, mbuf->pitches, mbuf->offsets, &mbuf->fb_id, 0))
-     ERR("error: get fb_id %dx%d, %c%c%c%c, (%d,%d,%d), (%d,%d,%d), (%d,%d,%d)",
-         mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
+     ERR("%d: %dx%d, %c%c%c%c, (%d,%d,%d), (%d,%d,%d), (%d,%d,%d): %s",
+         mbuf->stamp, mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
          mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
          mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
-         mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2]);
+         mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2], func);
 
    EINA_SAFETY_ON_FALSE_GOTO(mbuf->fb_id > 0, create_fail);
 
-   DBG("%dx%d, %c%c%c%c, (%d,%d,%d), (%d,%d,%d), (%d,%d,%d): fb_id(%d)",
-       mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
-       mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
-       mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
-       mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2],
-       mbuf->fb_id);
+   DBG("%d: fb_id(%d): %s", mbuf->stamp, mbuf->fb_id, func);
 
    return mbuf;
 create_fail:
@@ -253,6 +329,7 @@ _e_devmgr_buffer_create_shm(struct wl_shm_buffer *shm_buffer, const char *func)
      mbuf->drmfmt = DRM_FORMAT_XRGB8888;
    else
      mbuf->drmfmt = format;
+
    mbuf->width = wl_shm_buffer_get_width(shm_buffer);
    mbuf->height = wl_shm_buffer_get_height(shm_buffer);
 
@@ -272,7 +349,9 @@ _e_devmgr_buffer_create_shm(struct wl_shm_buffer *shm_buffer, const char *func)
    mbuf->func = strdup(func);
    mbuf->ref_cnt = 1;
 
-   DBG("%d(%d) create: %s", mbuf->stamp, mbuf->ref_cnt, func);
+   DBG("%d: %dx%d, %c%c%c%c, (%d), (%d): %s",
+       mbuf->stamp, mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
+       mbuf->handles[0], mbuf->pitches[0], func);
 
    return mbuf;
 
@@ -330,7 +409,9 @@ _e_devmgr_buffer_create_hnd(uint handle, int width, int height, const char *func
    mbuf->func = strdup(func);
    mbuf->ref_cnt = 1;
 
-   DBG("%d(%d) create_ext: %s", mbuf->stamp, mbuf->ref_cnt, func);
+   DBG("%d: %dx%d, %c%c%c%c, (%d) (%d): %s",
+       mbuf->stamp, mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
+       mbuf->handles[0], mbuf->pitches[0], func);
 
    return mbuf;
 
@@ -340,10 +421,11 @@ create_fail:
 }
 
 E_Devmgr_Buf*
-_e_devmgr_buffer_alloc_fb(int width, int height, Eina_Bool secure, const char *func)
+_e_devmgr_buffer_alloc(int width, int height, uint drmfmt, Eina_Bool secure, const char *func)
 {
    E_Devmgr_Buf *mbuf = NULL;
    uint stamp;
+   int size;
 
    EINA_SAFETY_ON_FALSE_RETURN_VAL(width > 0, NULL);
    EINA_SAFETY_ON_FALSE_RETURN_VAL(height > 0, NULL);
@@ -351,16 +433,18 @@ _e_devmgr_buffer_alloc_fb(int width, int height, Eina_Bool secure, const char *f
    mbuf = calloc(1, sizeof(E_Devmgr_Buf));
    EINA_SAFETY_ON_FALSE_GOTO(mbuf != NULL, alloc_fail);
 
-   mbuf->drmfmt = DRM_FORMAT_ARGB8888;
+   mbuf->drmfmt = drmfmt;
    mbuf->width = width;
    mbuf->height = height;
-   mbuf->pitches[0] = ((width + 15) & (~0xF)) << 2;
+
+   size = e_devmgr_buf_image_attr(drmfmt, ROUNDUP(width, 16), height, mbuf->pitches, NULL);
 
    mbuf->type = TYPE_BO;
+
    if (!secure)
-     mbuf->b.bo[0] = _e_devmgr_buf_normal_alloc(mbuf->pitches[0] * mbuf->height, TBM_BO_DEFAULT);
+     mbuf->b.bo[0] = _e_devmgr_buf_normal_alloc(size, TBM_BO_DEFAULT);
    else
-     mbuf->b.bo[0] = _e_devmgr_buf_secure_alloc(mbuf->pitches[0] * mbuf->height, TBM_BO_DEFAULT);
+     mbuf->b.bo[0] = _e_devmgr_buf_secure_alloc(size, TBM_BO_DEFAULT);
    EINA_SAFETY_ON_FALSE_GOTO(mbuf->b.bo[0] != NULL, alloc_fail);
 
    mbuf->handles[0] = tbm_bo_get_handle(mbuf->b.bo[0], TBM_DEVICE_DEFAULT).u32;
@@ -368,15 +452,6 @@ _e_devmgr_buffer_alloc_fb(int width, int height, Eina_Bool secure, const char *f
 
    if (!secure)
      mbuf->ptrs[0] = tbm_bo_get_handle(mbuf->b.bo[0], TBM_DEVICE_CPU).ptr;
-
-   if (drmModeAddFB2(e_devmgr_drm_fd, mbuf->width, mbuf->height, mbuf->drmfmt,
-                     mbuf->handles, mbuf->pitches, mbuf->offsets, &mbuf->fb_id, 0))
-     ERR("error: get fb_id %dx%d, %c%c%c%c, (%d,%d,%d), (%d,%d,%d), (%d,%d,%d)",
-         mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
-         mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
-         mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
-         mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2]);
-   EINA_SAFETY_ON_FALSE_GOTO(mbuf->fb_id > 0, alloc_fail);
 
    mbuf->secure = secure;
 
@@ -390,13 +465,35 @@ _e_devmgr_buffer_alloc_fb(int width, int height, Eina_Bool secure, const char *f
    mbuf->func = strdup(func);
    mbuf->ref_cnt = 1;
 
-   DBG("%d(%d) alloc: %s", mbuf->stamp, mbuf->ref_cnt, func);
-   DBG("%dx%d, %c%c%c%c, (%d,%d,%d), (%d,%d,%d), (%d,%d,%d): fb_id(%d)",
-       mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
+   DBG("%d: %dx%d, %c%c%c%c, (%d,%d,%d), (%d,%d,%d), (%d,%d,%d): %s",
+       mbuf->stamp, mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
        mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
        mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
-       mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2],
-       mbuf->fb_id);
+       mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2], func);
+
+   return mbuf;
+
+alloc_fail:
+   e_devmgr_buffer_free(mbuf);
+
+   return NULL;
+}
+
+E_Devmgr_Buf*
+_e_devmgr_buffer_alloc_fb(int width, int height, Eina_Bool secure, const char *func)
+{
+   E_Devmgr_Buf *mbuf = _e_devmgr_buffer_alloc(width, height, DRM_FORMAT_ARGB8888, secure, func);
+
+   if (drmModeAddFB2(e_devmgr_drm_fd, mbuf->width, mbuf->height, mbuf->drmfmt,
+                     mbuf->handles, mbuf->pitches, mbuf->offsets, &mbuf->fb_id, 0))
+     ERR("%d: %dx%d, %c%c%c%c, (%d,%d,%d), (%d,%d,%d), (%d,%d,%d): %s",
+         mbuf->stamp, mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
+         mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
+         mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
+         mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2], func);
+   EINA_SAFETY_ON_FALSE_GOTO(mbuf->fb_id > 0, alloc_fail);
+
+   DBG("%d: fb_id(%d): %s", mbuf->stamp, mbuf->fb_id, func);
 
    return mbuf;
 
@@ -568,10 +665,6 @@ _e_devmgr_buffer_pixman_format_get(E_Devmgr_Buf *mbuf)
 {
    switch(mbuf->drmfmt)
      {
-      case DRM_FORMAT_YUV422:
-        return PIXMAN_yuy2;
-      case DRM_FORMAT_YUV420:
-        return PIXMAN_yv12;
       case DRM_FORMAT_ARGB8888:
         return PIXMAN_a8r8g8b8;
       case DRM_FORMAT_XRGB8888:
@@ -682,6 +775,86 @@ e_devmgr_buffer_convert(E_Devmgr_Buf *srcbuf, E_Devmgr_Buf *dstbuf,
 cant_convert:
    if (src_img) pixman_image_unref(src_img);
    if (dst_img) pixman_image_unref(dst_img);
+}
+
+static void
+_copy_image_YUV422(unsigned char *s, uint *s_pitches, unsigned char *d, uint *d_pitches, int height)
+{
+   int i;
+
+   for (i = 0; i < height; i++)
+     {
+        memcpy(d, s, s_pitches[i]);
+        s += s_pitches[i];
+        d += d_pitches[i];
+     }
+}
+
+static void
+_copy_image_YUV420(unsigned char *s, uint *s_pitches, unsigned char *d, uint *d_pitches, int height)
+{
+   int i, j, c_height;
+
+   for (i = 0; i < 3; i++)
+     {
+        c_height = (i == 0) ? height : height / 2;
+
+        for (j = 0; j < c_height; j++)
+          {
+             memcpy(d, s, s_pitches[i]);
+             s += s_pitches[i];
+             d += d_pitches[i];
+          }
+     }
+}
+
+static void
+_copy_image_NV12(unsigned char *s, uint *s_pitches, unsigned char *d, uint *d_pitches, int height)
+{
+   int i, j, c_height;
+
+   for (i = 0; i < 2; i++)
+     {
+        c_height = (i == 0) ? height : height / 2;
+
+        for (j = 0; j < c_height; j++)
+          {
+             memcpy(d, s, s_pitches[i]);
+             s += s_pitches[i];
+             d += d_pitches[i];
+          }
+     }
+}
+
+Eina_Bool
+e_devmgr_buffer_copy(E_Devmgr_Buf *srcbuf, E_Devmgr_Buf *dstbuf)
+{
+   switch (srcbuf->drmfmt)
+     {
+      case DRM_FORMAT_YUV422:
+      case DRM_FORMAT_YVU422:
+        _copy_image_YUV422((unsigned char*)srcbuf->ptrs[0], srcbuf->pitches,
+                           (unsigned char*)dstbuf->ptrs[0], dstbuf->pitches,
+                           srcbuf->height);
+        break;
+      case DRM_FORMAT_YUV420:
+      case DRM_FORMAT_YVU420:
+        _copy_image_YUV420((unsigned char*)srcbuf->ptrs[0], srcbuf->pitches,
+                           (unsigned char*)dstbuf->ptrs[0], dstbuf->pitches,
+                           srcbuf->height);
+        break;
+      case DRM_FORMAT_NV12:
+      case DRM_FORMAT_NV21:
+        _copy_image_NV12((unsigned char*)srcbuf->ptrs[0], srcbuf->pitches,
+                         (unsigned char*)dstbuf->ptrs[0], dstbuf->pitches,
+                         srcbuf->height);
+        break;
+      default:
+        ERR("not implemented yet.");
+        return EINA_FALSE;
+     }
+
+   return EINA_TRUE;
 }
 
 uint
