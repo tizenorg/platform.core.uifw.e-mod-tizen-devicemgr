@@ -5,6 +5,11 @@
 #define BUFFER_MAX_COUNT   3
 #define MIN_WIDTH   32
 
+#define VER(fmt,arg...)   ERR("video(%p): "fmt, video, ##arg)
+#define VWR(fmt,arg...)   WRN("video(%p): "fmt, video, ##arg)
+#define VIN(fmt,arg...)   INF("video(%p): "fmt, video, ##arg)
+#define VDB(fmt,arg...)   DBG("video(%p): "fmt, video, ##arg)
+
 typedef struct _E_Video_Fb
 {
    E_Devmgr_Buf *mbuf;
@@ -227,7 +232,7 @@ _e_video_input_buffer_cb_destroy(struct wl_listener *listener, void *data)
              _e_video_frame_buffer_show(video, NULL);
              _e_video_frame_buffer_destroy(video->current_fb);
              video->current_fb = NULL;
-             DBG("current fb destroyed");
+             VDB("current fb destroyed");
              return;
           }
 
@@ -256,7 +261,7 @@ _e_video_input_buffer_get(E_Video *video, Tizen_Buffer *tizen_buffer, Eina_Bool 
                return mbuf;
              else
                {
-                  ERR("error: got (%d,%d,%d)buffer twice", mbuf->b.tizen_buffer->name[0],
+                  VER("error: got (%d,%d,%d)buffer twice", mbuf->b.tizen_buffer->name[0],
                       mbuf->b.tizen_buffer->name[1], mbuf->b.tizen_buffer->name[2]);
                   return NULL;
                }
@@ -305,7 +310,7 @@ _e_video_cvt_buffer_get(E_Video *video, int width, int height)
           return mbuf;
      }
 
-   ERR("all video framebuffers in use (max:%d)", BUFFER_MAX_COUNT);
+   VER("all video framebuffers in use (max:%d)", BUFFER_MAX_COUNT);
 
    return NULL;
 }
@@ -406,7 +411,7 @@ _e_video_plane_info_get(E_Video *video)
    video->plane_id = plane_id;
    video->zpos = zpos;
 
-   DBG("crtc_id(%d) plane_id(%d) zpos(%d)", crtc_id, plane_id, zpos);
+   VDB("crtc_id(%d) plane_id(%d) zpos(%d)", crtc_id, plane_id, zpos);
 
    drmModeFreeResources(mode_res);
    drmModeFreePlaneResources(plane_res);
@@ -519,7 +524,7 @@ _e_video_geometry_info_get(E_Video *video)
         break;
      }
 
-   DBG("geometry(%dx%d %d,%d,%d,%d %d,%d,%d,%d %d&%d %d)",
+   VDB("geometry(%dx%d %d,%d,%d,%d %d,%d,%d,%d %d&%d %d)",
        video->geo.input_w, video->geo.input_h,
        video->geo.input_r.x, video->geo.input_r.y, video->geo.input_r.w, video->geo.input_r.h,
        video->geo.output_r.x, video->geo.output_r.y, video->geo.output_r.w, video->geo.output_r.h,
@@ -592,11 +597,15 @@ _e_video_frame_buffer_create(E_Video *video, E_Devmgr_Buf *mbuf, Eina_Rectangle 
 static void
 _e_video_frame_buffer_destroy(E_Video_Fb *vfb)
 {
+   E_Video *video;
+
    if (!vfb) return;
+
+   video = vfb->video;
    if (vfb->mbuf)
      {
         vfb->mbuf->showing = EINA_FALSE;
-        DBG("%d: hidden", MSTAMP(vfb->mbuf));
+        VDB("mbuf(%d) hidden", MSTAMP(vfb->mbuf));
         e_devmgr_buffer_unref(vfb->mbuf);
      }
    e_comp_wl_buffer_reference(&vfb->buffer_ref, NULL);
@@ -637,13 +646,13 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
      }
 
    if (vfb->visible_r.x != new_src_x)
-     DBG("src_x changed: %d => %d", vfb->visible_r.x, new_src_x);
+     VDB("src_x changed: %d => %d", vfb->visible_r.x, new_src_x);
    if (vfb->visible_r.w != new_src_w)
-     DBG("src_w changed: %d => %d", vfb->visible_r.w, new_src_w);
+     VDB("src_w changed: %d => %d", vfb->visible_r.w, new_src_w);
    if (video->geo.output_r.x != new_dst_x)
-     DBG("dst_x changed: %d => %d", video->geo.output_r.x, new_dst_x);
+     VDB("dst_x changed: %d => %d", video->geo.output_r.x, new_dst_x);
    if (vfb->visible_r.w != new_dst_w)
-     DBG("dst_w changed: %d => %d", vfb->visible_r.w, new_dst_w);
+     VDB("dst_w changed: %d => %d", vfb->visible_r.w, new_dst_w);
 
    /* Source values are 16.16 fixed point */
    fx = ((unsigned int)new_src_x) << 16;
@@ -656,7 +665,7 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
                        new_dst_w, vfb->visible_r.h,
                        fx, fy, fw, fh))
      {
-         ERR("failed: plane(%d) crtc(%d) pos(%d) on: fb(%d,%dx%d,[%d,%d,%d,%d]=>[%d,%d,%d,%d])",
+         VER("failed: plane(%d) crtc(%d) pos(%d) on: fb(%d,%dx%d,[%d,%d,%d,%d]=>[%d,%d,%d,%d])",
              video->plane_id, crtc_id, video->zpos,
              vfb->mbuf->fb_id, vfb->mbuf->width, vfb->mbuf->height,
              new_src_x, vfb->visible_r.y, new_src_w, vfb->visible_r.h,
@@ -664,7 +673,7 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
          return;
      }
 
-   DBG("plane(%d) crtc(%d) pos(%d) on: fb(%d,%dx%d,[%d,%d,%d,%d]=>[%d,%d,%d,%d])",
+   VDB("plane(%d) crtc(%d) pos(%d) on: fb(%d,%dx%d,[%d,%d,%d,%d]=>[%d,%d,%d,%d])",
        video->plane_id, crtc_id, video->zpos,
        vfb->mbuf->fb_id, vfb->mbuf->width, vfb->mbuf->height,
        new_src_x, vfb->visible_r.y, new_src_w, vfb->visible_r.h,
@@ -681,7 +690,7 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
 
    if (!e_devicemgr_drm_get_cur_msc(video->pipe, &target_msc))
      {
-         ERR("failed: e_devicemgr_drm_get_cur_msc");
+         VER("failed: e_devicemgr_drm_get_cur_msc");
          return;
      }
 
@@ -689,7 +698,7 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
 
    if (!e_devicemgr_drm_wait_vblank(video->pipe, &target_msc, video))
      {
-         ERR("failed: e_devicemgr_drm_wait_vblank");
+         VER("failed: e_devicemgr_drm_wait_vblank");
          return;
      }
 }
@@ -703,7 +712,7 @@ _e_video_buffer_show(E_Video *video, E_Devmgr_Buf *mbuf, Eina_Rectangle *visible
    video->waiting_list = eina_list_append(video->waiting_list, vfb);
 
    vfb->mbuf->showing = EINA_TRUE;
-   DBG("%d: waiting", MSTAMP(vfb->mbuf));
+   VDB("mbuf(%d) waiting", MSTAMP(vfb->mbuf));
 
    /* There are waiting fbs more than 2 */
    if (eina_list_nth(video->waiting_list, 1))
@@ -780,7 +789,7 @@ _e_video_vblank_handler(unsigned int sequence,
    video->waiting_list = eina_list_remove(video->waiting_list, vfb);
    video->current_fb = vfb;
 
-   DBG("%d: showing", MSTAMP(vfb->mbuf));
+   VDB("mbuf(%d) showing", MSTAMP(vfb->mbuf));
 
    if ((vfb = eina_list_nth(video->waiting_list, 0)))
       _e_video_frame_buffer_show(video, vfb);
@@ -813,12 +822,13 @@ _e_video_create(E_Client *ec)
    EINA_SAFETY_ON_NULL_RETURN_VAL(video, NULL);
 
    video->ec = ec;
+   video->cvt_need_configure = EINA_TRUE;
 
    _e_video_format_info_get(video);
 
    if (!_e_video_plane_info_get(video))
      {
-        ERR("failed to find crtc & plane");
+        VER("failed to find crtc & plane");
         _e_video_destroy(video);
         return NULL;
      }
@@ -908,11 +918,11 @@ _e_video_render(E_Video *video)
      tizen_buffer->buffer = buffer;
    else if (tizen_buffer->buffer != buffer)
      {
-        ERR("error: buffer mismatch");
+        VER("error: buffer mismatch");
         return;
      }
 
-   DBG("video buffer: %c%c%c%c %dx%d (%d,%d,%d) (%d,%d,%d) (%d,%d,%d)",
+   VDB("video buffer: %c%c%c%c %dx%d (%d,%d,%d) (%d,%d,%d) (%d,%d,%d)",
        FOURCC_STR(drm_buffer->format), drm_buffer->width, drm_buffer->height,
        drm_buffer->name[0], drm_buffer->name[1], drm_buffer->name[2],
        drm_buffer->stride[0], drm_buffer->stride[1], drm_buffer->stride[2],
@@ -1031,7 +1041,15 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
    _e_video_geometry_calculate(video);
 
    if (memcmp(&video->old_geo, &video->geo, sizeof(video->geo)))
-      video->cvt_need_configure = EINA_TRUE;
+     {
+        video->cvt_need_configure = EINA_TRUE;
+
+        VIN("window(0x%08x) geometry(%dx%d %d,%d,%d,%d %d,%d,%d,%d %d&%d %d)",
+            e_client_util_win_get(ec), video->geo.input_w, video->geo.input_h,
+            video->geo.input_r.x, video->geo.input_r.y, video->geo.input_r.w, video->geo.input_r.h,
+            video->geo.output_r.x, video->geo.output_r.y, video->geo.output_r.w, video->geo.output_r.h,
+            video->geo.hflip, video->geo.vflip, video->geo.degree);
+     }
 
    /* 4. render */
    _e_video_render(video);
