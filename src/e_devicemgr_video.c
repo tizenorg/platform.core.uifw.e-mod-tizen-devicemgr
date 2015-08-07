@@ -37,7 +37,6 @@ struct _E_Video
    int plane_id;
    int zpos;
    int crtc_w, crtc_h;
-   Eina_Bool visible;
 
    struct
      {
@@ -230,8 +229,7 @@ _e_video_input_buffer_cb_destroy(struct wl_listener *listener, void *data)
         /* if current fb is destroyed */
         if (video->current_fb && video->current_fb->mbuf == mbuf)
           {
-             if (video->visible)
-               _e_video_frame_buffer_show(video, NULL);
+             _e_video_frame_buffer_show(video, NULL);
              _e_video_frame_buffer_destroy(video->current_fb);
              video->current_fb = NULL;
              VDB("current fb destroyed");
@@ -315,39 +313,6 @@ _e_video_cvt_buffer_get(E_Video *video, int width, int height)
    VER("all video framebuffers in use (max:%d)", BUFFER_MAX_COUNT);
 
    return NULL;
-}
-
-static void
-_e_video_visible_set(E_Video *video, Eina_Bool visible)
-{
-   if (video->visible == visible)
-     return;
-
-   if (visible)
-     {
-        /* now video is visible */
-        video->visible = visible;
-
-        e_devicemgr_drm_vblank_handler_add(_e_video_vblank_handler, video);
-
-        if (video->current_fb)
-          _e_video_frame_buffer_show(video, video->current_fb);
-     }
-   else
-     {
-        E_Video_Fb *vfb EINA_UNUSED;
-        Eina_List *l, *ll;
-
-        /* now video is un-visible */
-        e_devicemgr_drm_vblank_handler_del(_e_video_vblank_handler, video);
-
-        EINA_LIST_FOREACH_SAFE(video->waiting_list, l, ll, vfb)
-          _e_video_vblank_handler(0, 0, 0, (void*)video);
-
-        _e_video_frame_buffer_show(video, NULL);
-
-        video->visible = visible;
-     }
 }
 
 static Ecore_Drm_Output*
@@ -611,14 +576,14 @@ _e_video_format_info_get(E_Video *video)
 }
 
 static E_Video_Fb*
-_e_video_frame_buffer_create(E_Video *video, E_Devmgr_Buf *mbuf, Eina_Rectangle *visible_r)
+_e_video_frame_buffer_create(E_Video *video, E_Devmgr_Buf *mbuf, Eina_Rectangle *visible)
 {
    E_Video_Fb *vfb = calloc(1, sizeof(E_Video_Fb));
    EINA_SAFETY_ON_NULL_RETURN_VAL(vfb, NULL);
 
    vfb->mbuf = e_devmgr_buffer_ref(mbuf);
    vfb->video = video;
-   vfb->visible_r = *visible_r;
+   vfb->visible_r = *visible;
 
    if (mbuf->type == TYPE_TB)
      {
@@ -655,8 +620,6 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
    int new_src_x, new_src_w;
    int new_dst_x, new_dst_w;
    int crtc_id;
-
-   EINA_SAFETY_ON_FALSE_RETURN(video->visible);
 
    if (video->plane_id <= 0 || !video->drm_output)
       return;
@@ -741,24 +704,15 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
 }
 
 static void
-_e_video_buffer_show(E_Video *video, E_Devmgr_Buf *mbuf, Eina_Rectangle *visible_r)
+_e_video_buffer_show(E_Video *video, E_Devmgr_Buf *mbuf, Eina_Rectangle *visible)
 {
-   E_Video_Fb *vfb = _e_video_frame_buffer_create(video, mbuf, visible_r);
+   E_Video_Fb *vfb = _e_video_frame_buffer_create(video, mbuf, visible);
    EINA_SAFETY_ON_NULL_RETURN(vfb);
 
    video->waiting_list = eina_list_append(video->waiting_list, vfb);
 
    vfb->mbuf->showing = EINA_TRUE;
    VDB("mbuf(%d) waiting", MSTAMP(vfb->mbuf));
-
-    /* If not visible, we call vblank handler directory to do post-process
-     * for video frame buffer handling.
-     */
-   if (!video->visible)
-     {
-        _e_video_vblank_handler(0, 0, 0, (void*)video);
-        return;
-     }
 
    /* There are waiting fbs more than 2 */
    if (eina_list_nth(video->waiting_list, 1))
@@ -837,9 +791,8 @@ _e_video_vblank_handler(unsigned int sequence,
 
    VDB("mbuf(%d) showing", MSTAMP(vfb->mbuf));
 
-   if (video->visible)
-     if ((vfb = eina_list_nth(video->waiting_list, 0)))
-        _e_video_frame_buffer_show(video, vfb);
+   if ((vfb = eina_list_nth(video->waiting_list, 0)))
+      _e_video_frame_buffer_show(video, vfb);
 }
 
 static void
@@ -856,10 +809,8 @@ _e_video_create(E_Client *ec)
    E_Video *video = NULL;
    E_Comp_Wl_Client_Data *cdata;
    struct wl_client *client;
-   Eina_Bool visible;
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(ec, NULL);
-   EINA_SAFETY_ON_NULL_RETURN_VAL(ec->frame, NULL);
 
    cdata = e_pixmap_cdata_get(ec->pixmap);
    EINA_SAFETY_ON_NULL_RETURN_VAL(cdata, NULL);
@@ -884,8 +835,7 @@ _e_video_create(E_Client *ec)
 
    video_list = eina_list_append(video_list, video);
 
-   visible = (!ec->visibility.obscured) ? EINA_TRUE : EINA_FALSE;
-   _e_video_visible_set(video, visible);
+   e_devicemgr_drm_vblank_handler_add(_e_video_vblank_handler, video);
 
    video->client_destroy_listener.notify = _e_video_cb_client_destroy;
    wl_client_add_destroy_listener(client, &video->client_destroy_listener);
@@ -909,8 +859,7 @@ _e_video_destroy(E_Video *video)
      }
 
    /* hide video plane first */
-   if (video->visible)
-     _e_video_frame_buffer_show(video, NULL);
+   _e_video_frame_buffer_show(video, NULL);
 
    if (video->current_fb)
      {
@@ -1123,26 +1072,6 @@ _e_video_cb_ec_remove(void *data, int type, void *event)
    return ECORE_CALLBACK_PASS_ON;
 }
 
-static Eina_Bool
-_e_video_cb_visibility_change(void *data, int type, void *event)
-{
-   E_Video *video;
-   E_Client *ec;
-   E_Event_Client *ev = event;
-   Eina_Bool visible;
-
-   if (!ev) return ECORE_CALLBACK_PASS_ON;
-   if (!(ec = ev->ec)) return ECORE_CALLBACK_PASS_ON;
-   if (!(video = find_video_from_ec(ec))) return ECORE_CALLBACK_PASS_ON;
-
-   visible = (!ec->visibility.obscured) ? EINA_TRUE : EINA_FALSE;
-   VIN("window(0x%08x) visible(%d)", e_client_util_win_get(ec), visible);
-
-   _e_video_visible_set(video, visible);
-
-   return ECORE_CALLBACK_PASS_ON;
-}
-
 static Eina_List *video_hdlrs;
 
 static uint
@@ -1235,9 +1164,6 @@ e_devicemgr_video_init(void)
                          _e_video_cb_ec_remove, NULL);
    E_LIST_HANDLER_APPEND(video_hdlrs, E_EVENT_CLIENT_HIDE,
                          _e_video_cb_ec_remove, NULL);
-   E_LIST_HANDLER_APPEND(video_hdlrs, E_EVENT_CLIENT_VISIBILITY_CHANGE,
-                         _e_video_cb_visibility_change, NULL);
-
 #if 0 //TODO
    E_LIST_HANDLER_APPEND(video_hdlrs, E_EVENT_CLIENT_MOVE,
                          _e_devicemgr_video_cb_buffer_change, NULL);
