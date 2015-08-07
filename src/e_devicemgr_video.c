@@ -331,12 +331,45 @@ _e_video_plane_drm_output_find(unsigned int crtc_id)
    return NULL;
 }
 
+static drmModePropertyPtr
+_e_video_plane_get_zpos_property(uint plane_id, uint *zpos)
+{
+   drmModeObjectPropertiesPtr props = NULL;
+   drmModePropertyPtr prop = NULL;
+   int i;
+
+   if (!plane_id)
+      return NULL;
+
+   props = drmModeObjectGetProperties(e_devmgr_drm_fd, plane_id, DRM_MODE_OBJECT_PLANE);
+   if (props)
+     {
+        for (i = 0; i < props->count_props; i++)
+          {
+             prop = drmModeGetProperty(e_devmgr_drm_fd, props->props[i]);
+             if (prop)
+               {
+                  if (!strcmp(prop->name, "zpos"))
+                    {
+                       *zpos = (uint)props->prop_values[i];
+                       drmModeFreeObjectProperties(props);
+                       return prop;
+                    }
+                  drmModeFreeProperty(prop);
+               }
+          }
+        drmModeFreeObjectProperties(props);
+     }
+
+     return NULL;
+}
+
 static Eina_Bool
 _e_video_plane_info_get(E_Video *video)
 {
    drmModeResPtr mode_res = NULL;
    drmModePlaneResPtr plane_res = NULL;
-   uint crtc_id = 0, plane_id = 0, zpos = -1;
+   uint crtc_id = 0, plane_id = 0, zpos = -1, immutable_zpos = 0;
    uint connector_type = 0;
    int i, j;
 
@@ -365,8 +398,16 @@ _e_video_plane_info_get(E_Video *video)
    EINA_SAFETY_ON_FALSE_GOTO(plane_res, failed);
    for (i = 0; i < plane_res->count_planes; i++)
      {
+        uint plane_zpos = -1;
         drmModePlanePtr plane = drmModeGetPlane(e_devmgr_drm_fd, plane_res->planes[i]);
-        if (plane && plane->crtc_id == 0)
+        drmModePropertyPtr prop = _e_video_plane_get_zpos_property(plane->plane_id, &plane_zpos);
+        if (prop)
+          {
+             immutable_zpos = ((prop->flags & DRM_MODE_PROP_IMMUTABLE) ? 1 : 0);
+             zpos = plane_zpos;
+             drmModeFreeProperty(prop);
+          }
+        if (plane && plane->crtc_id == 0 && ((1 << video->pipe) & plane->possible_crtcs) && (!immutable_zpos || zpos == 1))
           {
              plane_id = plane->plane_id;
              drmModeFreePlane(plane);
@@ -399,13 +440,16 @@ _e_video_plane_info_get(E_Video *video)
         drmModeFreeEncoder(encoder);
      }
 
-   /* TODO: get zpos */
-   if (connector_type)
-      zpos = 1;
-   EINA_SAFETY_ON_FALSE_GOTO(zpos >= 0, failed);
+   if (!immutable_zpos)
+     {
+       /* TODO: get zpos */
+       if (connector_type)
+         zpos = 1;
+       EINA_SAFETY_ON_FALSE_GOTO(zpos >= 0, failed);
 
-   if (!e_devicemgr_drm_set_property(plane_id, DRM_MODE_OBJECT_PLANE, "zpos", zpos))
-     goto failed;
+       if (!e_devicemgr_drm_set_property(plane_id, DRM_MODE_OBJECT_PLANE, "zpos", zpos))
+         goto failed;
+     }
 
    video->drm_output = _e_video_plane_drm_output_find(crtc_id);
    video->plane_id = plane_id;
