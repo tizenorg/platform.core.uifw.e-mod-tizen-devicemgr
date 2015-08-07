@@ -936,6 +936,8 @@ _e_video_destroy(E_Video *video)
 
    video_list = eina_list_remove(video_list, video);
 
+   VIN("window(0x%08x) stop", e_client_util_win_get(video->ec));
+
    free(video);
 }
 
