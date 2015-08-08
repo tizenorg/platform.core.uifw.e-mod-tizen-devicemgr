@@ -936,7 +936,7 @@ _e_video_destroy(E_Video *video)
 
    video_list = eina_list_remove(video_list, video);
 
-   VIN("window(0x%08x) stop", e_client_util_win_get(video->ec));
+   VIN("window(0x%08"PRIxPTR") stop", e_client_util_win_get(video->ec));
 
    free(video);
 }
@@ -1090,7 +1090,7 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
      {
         video->cvt_need_configure = EINA_TRUE;
 
-        VIN("window(0x%08x) geometry(%dx%d %d,%d,%d,%d %d,%d,%d,%d %d&%d %d)",
+        VIN("window(0x%08"PRIxPTR") geometry(%dx%d %d,%d,%d,%d %d,%d,%d,%d %d&%d %d)",
             e_client_util_win_get(ec), video->geo.input_w, video->geo.input_h,
             video->geo.input_r.x, video->geo.input_r.y, video->geo.input_r.w, video->geo.input_r.h,
             video->geo.output_r.x, video->geo.output_r.y, video->geo.output_r.w, video->geo.output_r.h,
