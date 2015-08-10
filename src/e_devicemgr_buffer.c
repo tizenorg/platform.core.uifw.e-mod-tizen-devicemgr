@@ -253,9 +253,13 @@ _e_devmgr_buffer_create(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char
      }
 
    e_devmgr_buf_image_attr(mbuf->drmfmt, mbuf->width, mbuf->height, pitches, NULL);
-   EINA_SAFETY_ON_FALSE_GOTO(mbuf->pitches[0] == pitches[0], create_fail);
-
-   memcpy(mbuf->pitches, pitches, sizeof(uint) * 4);
+   if (!IS_RGB(mbuf->drmfmt))
+     {
+        if (mbuf->pitches[1] == 0 && pitches[1] > 0)
+          mbuf->pitches[1] = pitches[1];
+        if (mbuf->pitches[2] == 0 && pitches[2] > 0)
+          mbuf->pitches[2] = pitches[2];
+     }
 
    mbuf->type = TYPE_TB;
    mbuf->b.tizen_buffer = tizen_buffer;
