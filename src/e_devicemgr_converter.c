@@ -623,7 +623,7 @@ e_devmgr_cvt_pause(E_Devmgr_Cvt *cvt)
 Eina_Bool
 e_devmgr_cvt_property_set(E_Devmgr_Cvt *cvt, E_Devmgr_Cvt_Prop *src, E_Devmgr_Cvt_Prop *dst)
 {
-   if (cvt->started)
+   if (cvt->started && !cvt->paused)
      return EINA_TRUE;
 
    struct drm_exynos_ipp_property property;
