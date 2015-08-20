@@ -517,6 +517,12 @@ _e_video_geometry_info_get(E_Video *video)
    video->geo.input_r.w = (tx1 <= tx2) ? tx2 - tx1 : tx1 - tx2;
    video->geo.input_r.h = (ty1 <= ty2) ? ty2 - ty1 : ty1 - ty2;
 
+   VDB("transform(%d) scale(%d) buffer(%dx%d) viewport(%dx%d) (%d,%d %d,%d) => (%d,%d %d,%d)",
+       vp->buffer.transform, vp->buffer.scale,
+       ec->comp_data->width_from_buffer, ec->comp_data->height_from_buffer,
+       ec->comp_data->width_from_viewport, ec->comp_data->height_from_viewport,
+       x1, y1, x2, y2, tx1, tx2, ty1, ty2);
+
    /* output geometry */
    if ((sdata = ec->comp_data->sub.data))
      {

@@ -492,6 +492,17 @@ e_devmgr_cvt_ensure_size(E_Devmgr_Cvt_Prop *src, E_Devmgr_Cvt_Prop *dst)
           }
         if (type == TYPE_YUV420)
           src->crop.h = src->crop.h & (~0x1);
+
+        if (src->crop.x < 0)
+          {
+             src->crop.w += src->crop.x;
+             src->crop.x = 0;
+          }
+        if (src->crop.y < 0)
+          {
+             src->crop.h += src->crop.y;
+             src->crop.y = 0;
+          }
         if (src->crop.x + src->crop.w > src->width)
           src->crop.w = src->width - src->crop.x;
         if (src->crop.y + src->crop.h > src->height)
@@ -518,6 +529,17 @@ e_devmgr_cvt_ensure_size(E_Devmgr_Cvt_Prop *src, E_Devmgr_Cvt_Prop *dst)
           }
         if (type == TYPE_YUV420)
           dst->crop.h = dst->crop.h & (~0x1);
+
+        if (dst->crop.x < 0)
+          {
+             dst->crop.w += dst->crop.x;
+             dst->crop.x = 0;
+          }
+        if (dst->crop.y < 0)
+          {
+             dst->crop.h += dst->crop.y;
+             dst->crop.y = 0;
+          }
         if (dst->crop.x + dst->crop.w > dst->width)
           dst->crop.w = dst->width - dst->crop.x;
         if (dst->crop.y + dst->crop.h > dst->height)
