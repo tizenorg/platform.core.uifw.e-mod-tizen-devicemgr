@@ -231,6 +231,15 @@ _find_mbuf(uint stamp)
    return NULL;
 }
 
+static void
+_e_devmgr_buffer_cb_resource_destroy(struct wl_listener *listener, void *data)
+{
+   E_Devmgr_Buf *mbuf = container_of(listener, E_Devmgr_Buf, buffer_destroy_listener);
+
+   mbuf->buffer_destroying = EINA_TRUE;
+   e_devmgr_buffer_free(mbuf);
+}
+
 E_Devmgr_Buf*
 _e_devmgr_buffer_create(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char *func)
 {
@@ -289,6 +298,10 @@ _e_devmgr_buffer_create(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char
 
    mbuf->func = strdup(func);
    mbuf->ref_cnt = 1;
+
+   mbuf->buffer_destroy_listener.notify = _e_devmgr_buffer_cb_resource_destroy;
+   wl_resource_add_destroy_listener(tizen_buffer->drm_buffer->resource,
+                                    &mbuf->buffer_destroy_listener);
 
    BDB("%dx%d, %c%c%c%c, (%d,%d,%d), (%d,%d,%d), (%d,%d,%d): %s",
        mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
@@ -547,7 +560,7 @@ _e_devmgr_buffer_unref(E_Devmgr_Buf *mbuf, const char *func)
    mbuf->ref_cnt--;
    BDB("count(%d) unref: %s", mbuf->ref_cnt, func);
 
-   if (mbuf->ref_cnt == 0)
+   if (!mbuf->buffer_destroying && mbuf->ref_cnt == 0)
      _e_devmgr_buffer_free(mbuf, func);
 }
 
@@ -561,11 +574,10 @@ _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func)
    if (!mbuf)
      return;
 
-   /* make sure all operation is done */
-   MBUF_RETURN_IF_FAIL(mbuf->ref_cnt == 0);
    MBUF_RETURN_IF_FAIL(_e_devmgr_buffer_valid(mbuf, func));
-   MBUF_RETURN_IF_FAIL(!MBUF_IS_CONVERTING(mbuf));
-   MBUF_RETURN_IF_FAIL(mbuf->showing == EINA_FALSE);
+
+   if (mbuf->type == TYPE_TB && mbuf->b.tizen_buffer)
+     wl_list_remove(&mbuf->buffer_destroy_listener.link);
 
    EINA_LIST_FOREACH_SAFE(mbuf->free_funcs, l, ll, info)
      {
@@ -575,6 +587,13 @@ _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func)
             info->func(mbuf, info->data);
         free(info);
      }
+
+   if (!mbuf->buffer_destroying)
+     MBUF_RETURN_IF_FAIL(mbuf->ref_cnt == 0);
+
+   /* make sure all operation is done */
+   MBUF_RETURN_IF_FAIL(!MBUF_IS_CONVERTING(mbuf));
+   MBUF_RETURN_IF_FAIL(mbuf->showing == EINA_FALSE);
 
    if (mbuf->fb_id > 0)
      {

@@ -59,6 +59,7 @@ typedef struct _E_Devmgr_Buf
    } b;
    /* for tizen_buffer */
    struct wl_listener buffer_destroy_listener;
+   Eina_Bool buffer_destroying;
 
    Eina_List *convert_info;
    Eina_Bool showing;         /* now showing or now waiting to show. */
