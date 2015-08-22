@@ -606,7 +606,7 @@ _e_video_geometry_cal_viewport(E_Video *video)
 }
 
 static void
-_e_video_geometry_cal_map(E_Video *video, Eina_Bool fake)
+_e_video_geometry_cal_map(E_Video *video)
 {
    E_Client *ec = video->ec;
    const Evas_Map *m;
@@ -624,8 +624,7 @@ _e_video_geometry_cal_map(E_Video *video, Eina_Bool fake)
    evas_map_point_coord_get(m, 0, &x1, &y1, NULL);
    evas_map_point_coord_get(m, 2, &x2, &y2, NULL);
 
-   if (fake)
-   VIN("frame(%p) m(%p) output(%d,%d %dx%d) => (%d,%d %dx%d)",
+   VDB("frame(%p) m(%p) output(%d,%d %dx%d) => (%d,%d %dx%d)",
        ec->frame, m, video->geo.output_r.x, video->geo.output_r.y,
        video->geo.output_r.w, video->geo.output_r.h,
        x1, y1, x2 - x1, y2 - y1);
@@ -1055,7 +1054,7 @@ _e_video_render(E_Video *video, Eina_Bool fake)
    if (!_e_video_geometry_cal_viewport(video))
      return;
 
-   _e_video_geometry_cal_map(video, fake);
+   _e_video_geometry_cal_map(video);
 
    buffer = e_pixmap_resource_get(video->ec->pixmap);
    EINA_SAFETY_ON_NULL_RETURN(buffer);
