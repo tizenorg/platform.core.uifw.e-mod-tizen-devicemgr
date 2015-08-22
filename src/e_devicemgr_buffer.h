@@ -106,7 +106,7 @@ void         e_devmgr_buffer_free_func_del  (E_Devmgr_Buf *mbuf, MBuf_Free_Func 
 
 #define MBUF_IS_VALID(b)       _e_devmgr_buffer_valid(b,__FUNCTION__)
 #define MSTAMP(b)            ((b)?(b)->stamp:0)
-#define MBUF_IS_CONVERTING(b)       (eina_list_nth((b)->convert_info, 0)?EINA_TRUE:EINA_FALSE)
+#define MBUF_IS_CONVERTING(b)       (eina_list_count((b)->convert_info)?EINA_TRUE:EINA_FALSE)
 
 uint e_devmgr_buffer_get_mills(void);
 void e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *prefix, int nth, Eina_Bool raw);
@@ -116,5 +116,7 @@ void e_devmgr_buffer_convert(E_Devmgr_Buf *srcbuf, E_Devmgr_Buf *dstbuf,
                              Eina_Bool over, int rotate, int hflip, int vflip);
 
 Eina_Bool e_devmgr_buffer_copy(E_Devmgr_Buf *srcbuf, E_Devmgr_Buf *dstbuf);
+int e_devmgr_buffer_list_length(void);
+void e_devmgr_buffer_list_print(void);
 
 #endif

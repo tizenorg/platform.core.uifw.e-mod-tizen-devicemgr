@@ -67,6 +67,7 @@ struct _E_Devmgr_Cvt
    Eina_Bool started;
    Eina_Bool paused;
    Eina_Bool first_event;
+   Eina_Bool debug;
 };
 
 static Eina_List *cvt_list;
@@ -146,6 +147,22 @@ set_mbuf_converting(E_Devmgr_Buf *mbuf, E_Devmgr_Cvt *cvt, Eina_Bool converting)
         mbuf->convert_info = eina_list_append(mbuf->convert_info, cvt);
         return EINA_TRUE;
      }
+}
+
+static void
+_print_buf_list(E_Devmgr_Cvt *cvt, Eina_List *list, char *str)
+{
+    Eina_List *l;
+    E_Devmgr_CvtBuf *cbuf;
+    char nums[1028];
+    char *p = nums;
+
+    p += snprintf(nums, 128, "bufs:");
+
+    EINA_LIST_FOREACH(list, l, cbuf)
+      p += snprintf (p, 128, " %d(%d)", MSTAMP(cbuf->mbuf), cbuf->index);
+
+    INF("cvt(%p) list(%s): %s", cvt, str, nums);
 }
 
 static void
@@ -434,13 +451,20 @@ _e_devmgr_cvt_ipp_handler(unsigned int prop_id, unsigned int *buf_idx,
    dst_cbuf = _e_devmgr_cvt_find_buf(cvt, EXYNOS_DRM_OPS_DST, buf_idx[EXYNOS_DRM_OPS_DST]);
    EINA_SAFETY_ON_NULL_RETURN(dst_cbuf);
 
-   uint curm, sub;
-   curm = e_devmgr_buffer_get_mills();
-   sub = curm - src_cbuf->begin;
-   DBG("cvt(%p)   ipp interval  : %6d ms", cvt, sub);
-
    src_vbuf = src_cbuf->mbuf;
    dst_vbuf = dst_cbuf->mbuf;
+
+   if (cvt->debug)
+     {
+        char temp[64];
+        uint curm, sub;
+
+        curm = e_devmgr_buffer_get_mills();
+        sub = curm - src_cbuf->begin;
+
+        snprintf(temp, 64, "out(%d, %dms)", buf_idx[EXYNOS_DRM_OPS_SRC], sub);
+        _print_buf_list(cvt, cvt->src_bufs, temp);
+     }
 
    DBG("<== ipp(%d,%d,%d : %d,%d,%d) ",
        src_vbuf->stamp, MBUF_IS_CONVERTING(src_vbuf), src_vbuf->showing,
@@ -460,6 +484,14 @@ _e_devmgr_cvt_ipp_handler(unsigned int prop_id, unsigned int *buf_idx,
 
    _e_devmgr_cvt_dequeued(cvt, EXYNOS_DRM_OPS_SRC, buf_idx[EXYNOS_DRM_OPS_SRC]);
    _e_devmgr_cvt_dequeued(cvt, EXYNOS_DRM_OPS_DST, buf_idx[EXYNOS_DRM_OPS_DST]);
+}
+
+void
+e_devmgr_cvt_debug(E_Devmgr_Cvt *cvt, Eina_Bool enable)
+{
+   EINA_SAFETY_ON_NULL_RETURN(cvt);
+
+   cvt->debug = !(!enable);
 }
 
 Eina_Bool
@@ -757,6 +789,13 @@ e_devmgr_cvt_convert(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst)
      {
          ERR("error: queue dst buffer");
          goto fail_queue_dst;
+     }
+
+   if (cvt->debug)
+     {
+        char temp[64];
+        snprintf(temp, 64, "in(%d)", src_cbuf->index);
+        _print_buf_list(cvt, cvt->src_bufs, temp);
      }
 
    DBG("convert: cvt(%p) src(%d,%d,%d) dst(%d,%d,%d)", cvt,

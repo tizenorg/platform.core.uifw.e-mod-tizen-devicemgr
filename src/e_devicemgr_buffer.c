@@ -11,6 +11,8 @@
 #include "e_devicemgr_drm.h"
 #include "e_devicemgr_buffer.h"
 
+//#define DEBUG_LIFECYCLE
+
 #define PNG_DEPTH 8
 
 #define ALIGN_TO_16B(x)    ((((x) + (1 <<  4) - 1) >>  4) <<  4)
@@ -20,10 +22,20 @@
 #define ALIGN_TO_8KB(x)    ((((x) + (1 << 13) - 1) >> 13) << 13)
 #define ALIGN_TO_64KB(x)   ((((x) + (1 << 16) - 1) >> 16) << 16)
 
+#define BER(fmt,arg...)   ERR("%d: "fmt, mbuf->stamp, ##arg)
+#define BWR(fmt,arg...)   WRN("%d: "fmt, mbuf->stamp, ##arg)
+#define BIN(fmt,arg...)   INF("%d: "fmt, mbuf->stamp, ##arg)
+#define BDB(fmt,arg...)   DBG("%d: "fmt, mbuf->stamp, ##arg)
+
 #define MBUF_RETURN_IF_FAIL(cond) \
-   {if (!(cond)) { ERR("%d: '%s' failed. (%s)", mbuf->stamp, #cond, func); return; }}
+   {if (!(cond)) { BER("'%s' failed. (%s)", #cond, func); return; }}
 #define MBUF_RETURN_VAL_IF_FAIL(cond, val) \
-   {if (!(cond)) { ERR("%d: '%s' failed. (%s)", mbuf->stamp, #cond, func); return val; }}
+   {if (!(cond)) { BER("'%s' failed. (%s)", #cond, func); return val; }}
+
+#ifdef DEBUG_LIFECYCLE
+#undef BDB
+#define BDB BIN
+#endif
 
 typedef struct _MBufFreeFuncInfo
 {
@@ -227,6 +239,8 @@ _e_devmgr_buffer_create(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char
    int i;
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(tizen_buffer, NULL);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(tizen_buffer->drm_buffer, NULL);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(tizen_buffer->drm_buffer->resource, NULL);
 
    mbuf = calloc(1, sizeof(E_Devmgr_Buf));
    EINA_SAFETY_ON_FALSE_GOTO(mbuf != NULL, create_fail);
@@ -276,8 +290,8 @@ _e_devmgr_buffer_create(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char
    mbuf->func = strdup(func);
    mbuf->ref_cnt = 1;
 
-   DBG("%d: %dx%d, %c%c%c%c, (%d,%d,%d), (%d,%d,%d), (%d,%d,%d): %s",
-       mbuf->stamp, mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
+   BDB("%dx%d, %c%c%c%c, (%d,%d,%d), (%d,%d,%d), (%d,%d,%d): %s",
+       mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
        mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
        mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
        mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2], func);
@@ -297,15 +311,15 @@ _e_devmgr_buffer_create_fb(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const c
 
    if (drmModeAddFB2(e_devmgr_drm_fd, mbuf->width, mbuf->height, mbuf->drmfmt,
                      mbuf->handles, mbuf->pitches, mbuf->offsets, &mbuf->fb_id, 0))
-     ERR("%d: %dx%d, %c%c%c%c, (%d,%d,%d), (%d,%d,%d), (%d,%d,%d): %s",
-         mbuf->stamp, mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
+     BER("%dx%d, %c%c%c%c, (%d,%d,%d), (%d,%d,%d), (%d,%d,%d): %s",
+         mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
          mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
          mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
          mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2], func);
 
    EINA_SAFETY_ON_FALSE_GOTO(mbuf->fb_id > 0, create_fail);
 
-   DBG("%d: fb_id(%d): %s", mbuf->stamp, mbuf->fb_id, func);
+   BDB("fb_id(%d): %s", mbuf->fb_id, func);
 
    return mbuf;
 create_fail:
@@ -353,8 +367,8 @@ _e_devmgr_buffer_create_shm(struct wl_shm_buffer *shm_buffer, const char *func)
    mbuf->func = strdup(func);
    mbuf->ref_cnt = 1;
 
-   DBG("%d: %dx%d, %c%c%c%c, (%d), (%d): %s",
-       mbuf->stamp, mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
+   BDB("%dx%d, %c%c%c%c, (%d), (%d): %s",
+       mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
        mbuf->handles[0], mbuf->pitches[0], func);
 
    return mbuf;
@@ -413,8 +427,8 @@ _e_devmgr_buffer_create_hnd(uint handle, int width, int height, const char *func
    mbuf->func = strdup(func);
    mbuf->ref_cnt = 1;
 
-   DBG("%d: %dx%d, %c%c%c%c, (%d) (%d): %s",
-       mbuf->stamp, mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
+   BDB("%dx%d, %c%c%c%c, (%d) (%d): %s",
+       mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
        mbuf->handles[0], mbuf->pitches[0], func);
 
    return mbuf;
@@ -469,8 +483,8 @@ _e_devmgr_buffer_alloc(int width, int height, uint drmfmt, Eina_Bool secure, con
    mbuf->func = strdup(func);
    mbuf->ref_cnt = 1;
 
-   DBG("%d: %dx%d, %c%c%c%c, (%d,%d,%d), (%d,%d,%d), (%d,%d,%d): %s",
-       mbuf->stamp, mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
+   BDB("%dx%d, %c%c%c%c, (%d,%d,%d), (%d,%d,%d), (%d,%d,%d): %s",
+       mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
        mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
        mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
        mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2], func);
@@ -487,17 +501,18 @@ E_Devmgr_Buf*
 _e_devmgr_buffer_alloc_fb(int width, int height, Eina_Bool secure, const char *func)
 {
    E_Devmgr_Buf *mbuf = _e_devmgr_buffer_alloc(width, height, DRM_FORMAT_ARGB8888, secure, func);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
    if (drmModeAddFB2(e_devmgr_drm_fd, mbuf->width, mbuf->height, mbuf->drmfmt,
                      mbuf->handles, mbuf->pitches, mbuf->offsets, &mbuf->fb_id, 0))
-     ERR("%d: %dx%d, %c%c%c%c, (%d,%d,%d), (%d,%d,%d), (%d,%d,%d): %s",
-         mbuf->stamp, mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
+     BER("%dx%d, %c%c%c%c, (%d,%d,%d), (%d,%d,%d), (%d,%d,%d): %s",
+         mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
          mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
          mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
          mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2], func);
    EINA_SAFETY_ON_FALSE_GOTO(mbuf->fb_id > 0, alloc_fail);
 
-   DBG("%d: fb_id(%d): %s", mbuf->stamp, mbuf->fb_id, func);
+   BDB("fb_id(%d): %s", mbuf->fb_id, func);
 
    return mbuf;
 
@@ -516,7 +531,7 @@ _e_devmgr_buffer_ref(E_Devmgr_Buf *mbuf, const char *func)
    EINA_SAFETY_ON_FALSE_RETURN_VAL(MBUF_IS_VALID(mbuf), NULL);
 
    mbuf->ref_cnt++;
-   DBG("%d(%d) ref: %s", mbuf->stamp, mbuf->ref_cnt, func);
+   BDB("count(%d) ref: %s", mbuf->ref_cnt, func);
 
    return mbuf;
 }
@@ -530,7 +545,7 @@ _e_devmgr_buffer_unref(E_Devmgr_Buf *mbuf, const char *func)
    MBUF_RETURN_IF_FAIL(_e_devmgr_buffer_valid(mbuf, func));
 
    mbuf->ref_cnt--;
-   DBG("%d(%d) unref: %s", mbuf->stamp, mbuf->ref_cnt, func);
+   BDB("count(%d) unref: %s", mbuf->ref_cnt, func);
 
    if (mbuf->ref_cnt == 0)
      _e_devmgr_buffer_free(mbuf, func);
@@ -563,7 +578,7 @@ _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func)
 
    if (mbuf->fb_id > 0)
      {
-        DBG("mbuf(%d) fb_id(%d) removed. ", mbuf->stamp, mbuf->fb_id);
+        BDB("fb_id(%d) removed. ", mbuf->fb_id);
         drmModeRmFB(e_devmgr_drm_fd, mbuf->fb_id);
      }
 
@@ -578,7 +593,7 @@ _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func)
 
    mbuf_lists = eina_list_remove(mbuf_lists, mbuf);
 
-   DBG("%d freed: %s", mbuf->stamp, func);
+   BDB("freed: %s", func);
 
    mbuf->stamp = 0;
 
@@ -854,7 +869,7 @@ e_devmgr_buffer_copy(E_Devmgr_Buf *srcbuf, E_Devmgr_Buf *dstbuf)
                          srcbuf->height);
         break;
       default:
-        ERR("not implemented yet.");
+        ERR("not implemented for %c%c%c%c", FOURCC_STR(srcbuf->drmfmt));
         return EINA_FALSE;
      }
 
@@ -959,7 +974,7 @@ e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *prefix, int nth, Eina_Bool 
    if (!mbuf) return;
    if (mbuf->secure)
      {
-        DBG("can't dump a secure buffer");
+        BER("can't dump a secure buffer");
         return;
      }
 
@@ -1004,5 +1019,30 @@ e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *prefix, int nth, Eina_Bool 
                     mbuf->ptrs[1], mbuf->pitches[1] * mbuf->height);
      }
 
-   DBG("dump %s", path);
+   BDB("dump %s", path);
+}
+
+int
+e_devmgr_buffer_list_length(void)
+{
+   return eina_list_count(mbuf_lists);
+}
+
+void
+e_devmgr_buffer_list_print(void)
+{
+   E_Devmgr_Buf *mbuf;
+   Eina_List *l;
+
+   INF("* Devicemgr Buffers:");
+   INF("stamp\tsize\tformat\thandles\tpitches\toffsets\tcreator\tconverting\tshowing");
+   EINA_LIST_FOREACH(mbuf_lists, l, mbuf)
+     {
+        INF("%d\t%dx%d\t%c%c%c%c\t%d,%d,%d\t%d,%d,%d\t%d,%d,%d\t%s\t%d\t%d",
+            mbuf->stamp, mbuf->width, mbuf->height, FOURCC_STR(mbuf->drmfmt),
+            mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
+            mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
+            mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2],
+            mbuf->func, MBUF_IS_CONVERTING(mbuf), mbuf->showing);
+     }
 }
