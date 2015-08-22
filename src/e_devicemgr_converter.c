@@ -40,7 +40,7 @@ typedef struct _E_Devmgr_CvtBuf
    uint  begin;
 
    E_Devmgr_Buf  *mbuf;
-   E_Devmgr_Buf  *org_mbuf;
+   E_Devmgr_Buf  *clone_mbuf;
 
    E_Devmgr_Cvt *cvt;
    E_Comp_Wl_Buffer_Ref buffer_ref;
@@ -332,7 +332,7 @@ _e_devmgr_cvt_dequeued(E_Devmgr_Cvt *cvt, E_Devmgr_CvtType type, int index)
         e_comp_wl_buffer_reference(&cbuf->buffer_ref, NULL);
      }
 
-   e_devmgr_buffer_unref(cbuf->org_mbuf);
+   e_devmgr_buffer_unref(cbuf->clone_mbuf);
    e_devmgr_buffer_unref(cbuf->mbuf);
    free(cbuf);
 }
@@ -738,8 +738,8 @@ e_devmgr_cvt_convert(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst)
           }
 
         src_cbuf->type = CVT_TYPE_SRC;
-        src_cbuf->org_mbuf = e_devmgr_buffer_ref(src);
-        src_cbuf->mbuf = tmp;
+        src_cbuf->mbuf = e_devmgr_buffer_ref(src);
+        src_cbuf->clone_mbuf = tmp;
         memcpy(src_cbuf->handles, tmp->handles, sizeof(uint) * 4);
      }
 
@@ -799,13 +799,13 @@ fail_queue_dst:
 fail:
    if (src_cbuf)
      {
-        e_devmgr_buffer_unref(src_cbuf->org_mbuf);
+        e_devmgr_buffer_unref(src_cbuf->clone_mbuf);
         e_devmgr_buffer_unref(src_cbuf->mbuf);
         free(src_cbuf);
      }
    if (dst_cbuf)
      {
-        e_devmgr_buffer_unref(dst_cbuf->org_mbuf);
+        e_devmgr_buffer_unref(dst_cbuf->clone_mbuf);
         e_devmgr_buffer_unref(dst_cbuf->mbuf);
         free(dst_cbuf);
      }
