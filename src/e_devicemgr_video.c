@@ -2,13 +2,13 @@
 #include "e_devicemgr_dpms.h"
 #include "e_devicemgr_converter.h"
 
-#define BUFFER_MAX_COUNT   3
+#define BUFFER_MAX_COUNT   5
 #define MIN_WIDTH   32
 
-#define VER(fmt,arg...)   ERR("video(%p): "fmt, video, ##arg)
-#define VWR(fmt,arg...)   WRN("video(%p): "fmt, video, ##arg)
-#define VIN(fmt,arg...)   INF("video(%p): "fmt, video, ##arg)
-#define VDB(fmt,arg...)   DBG("video(%p): "fmt, video, ##arg)
+#define VER(fmt,arg...)   ERR("window(0x%08"PRIxPTR"): "fmt, video->window, ##arg)
+#define VWR(fmt,arg...)   WRN("window(0x%08"PRIxPTR"): "fmt, video->window, ##arg)
+#define VIN(fmt,arg...)   INF("window(0x%08"PRIxPTR"): "fmt, video->window, ##arg)
+#define VDB(fmt,arg...)   DBG("window(0x%08"PRIxPTR"): "fmt, video->window, ##arg)
 
 typedef struct _E_Video_Fb
 {
@@ -17,6 +17,8 @@ typedef struct _E_Video_Fb
 
    E_Video *video;
 
+   Eina_Bool fake;
+
    /* in case of non-converting */
    E_Comp_Wl_Buffer_Ref buffer_ref;
 } E_Video_Fb;
@@ -24,6 +26,7 @@ typedef struct _E_Video_Fb
 struct _E_Video
 {
    E_Client *ec;
+   Ecore_Window window;
 
    struct wl_listener client_destroy_listener;
 
@@ -49,13 +52,16 @@ struct _E_Video
 
    /* converter info */
    void *cvt;
-   Eina_Bool cvt_need_configure;
    Eina_Rectangle cvt_r;    /* converter dst content rect */
    Eina_List *cvt_buffer_list;
 
    /* vblank handling */
+   Eina_Bool   wait_vblank;
    Eina_List  *waiting_list;
    E_Video_Fb *current_fb;
+
+   Eina_Bool   need_render;
+   Eina_List  *fake_buffer_list;
 };
 
 static uint video_format_table[] =
@@ -76,9 +82,10 @@ static uint video_format_table[] =
 static Eina_List *video_list;
 
 static void _e_video_destroy(E_Video *video);
+static void _e_video_render(E_Video *video, Eina_Bool fake);
 static void _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb);
 static void _e_video_frame_buffer_destroy(E_Video_Fb *vfb);
-static void _e_video_vblank_handler(unsigned int sequence, unsigned int tv_sec, unsigned int tv_usec, void *data);
+static void _e_video_wait_vblank(E_Video *video);
 
 static Eina_Bool
 check_hw_restriction(int crtc_w, int buf_w,
@@ -192,81 +199,44 @@ find_video_from_ec(E_Client *ec)
    return NULL;
 }
 
-static E_Video*
-find_video_from_input_buffer(E_Devmgr_Buf *mbuf)
-{
-   E_Video *video;
-   Eina_List *l;
-
-   EINA_LIST_FOREACH(video_list, l, video)
-     if (eina_list_data_find(video->input_buffer_list, mbuf))
-       return video;
-
-   return NULL;
-}
-
 static void
-_e_video_input_buffer_cb_destroy(struct wl_listener *listener, void *data)
+_e_video_input_buffer_cb_destroy(E_Devmgr_Buf *mbuf, void *data)
 {
-   E_Devmgr_Buf *mbuf = container_of(listener, E_Devmgr_Buf, buffer_destroy_listener);
-   E_Video *video = find_video_from_input_buffer(mbuf);
+   E_Video *video = data;
+   E_Video_Fb *vfb;
+   Eina_List *l, *ll;
 
    video->input_buffer_list = eina_list_remove(video->input_buffer_list, mbuf);
+   video->fake_buffer_list = eina_list_remove(video->fake_buffer_list, mbuf);
 
-   if (mbuf->buffer_destroy_listener.notify)
+   /* if cvt exists, it means that input buffer is not a frame buffer. */
+   if (video->cvt)
+     return;
+
+   /* if current fb is destroyed */
+   if (video->current_fb && video->current_fb->mbuf == mbuf)
      {
-        wl_list_remove(&mbuf->buffer_destroy_listener.link);
-        mbuf->buffer_destroy_listener.notify = NULL;
+        _e_video_frame_buffer_show(video, NULL);
+        _e_video_frame_buffer_destroy(video->current_fb);
+        video->current_fb = NULL;
+        VDB("current fb destroyed");
+        return;
      }
-   e_devmgr_buffer_unref(mbuf);
 
-   /* in case input_buffer is framebuffer */
-   if (!video->cvt)
-     {
-        E_Video_Fb *temp;
-        Eina_List *l, *ll;
-
-        /* if current fb is destroyed */
-        if (video->current_fb && video->current_fb->mbuf == mbuf)
-          {
-             _e_video_frame_buffer_show(video, NULL);
-             _e_video_frame_buffer_destroy(video->current_fb);
-             video->current_fb = NULL;
-             VDB("current fb destroyed");
-             return;
-          }
-
-        /* if waiting fb is destroyed */
-        EINA_LIST_FOREACH_SAFE(video->waiting_list, l, ll, temp)
-          if (temp->mbuf == mbuf)
-            {
-                video->waiting_list = eina_list_remove(video->waiting_list, temp);
-               _e_video_frame_buffer_destroy(temp);
-               return;
-            }
-     }
+   /* if waiting fb is destroyed */
+   EINA_LIST_FOREACH_SAFE(video->waiting_list, l, ll, vfb)
+     if (vfb->mbuf == mbuf)
+       {
+           video->waiting_list = eina_list_remove(video->waiting_list, vfb);
+          _e_video_frame_buffer_destroy(vfb);
+          return;
+       }
 }
 
 static E_Devmgr_Buf*
 _e_video_input_buffer_get(E_Video *video, Tizen_Buffer *tizen_buffer, Eina_Bool is_fb)
 {
    E_Devmgr_Buf *mbuf;
-   Eina_List *l;
-
-   EINA_LIST_FOREACH(video->input_buffer_list, l, mbuf)
-     {
-        if (mbuf->b.tizen_buffer == tizen_buffer)
-          {
-             if (!MBUF_IS_CONVERTING(mbuf) && !mbuf->showing)
-               return mbuf;
-             else
-               {
-                  VER("error: got (%d,%d,%d)buffer twice", mbuf->b.tizen_buffer->name[0],
-                      mbuf->b.tizen_buffer->name[1], mbuf->b.tizen_buffer->name[2]);
-                  return NULL;
-               }
-          }
-     }
 
    if (is_fb)
      mbuf = e_devmgr_buffer_create_fb(tizen_buffer, EINA_FALSE);
@@ -276,14 +246,38 @@ _e_video_input_buffer_get(E_Video *video, Tizen_Buffer *tizen_buffer, Eina_Bool 
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
    video->input_buffer_list = eina_list_append(video->input_buffer_list, mbuf);
-
-   if (tizen_buffer->buffer)
-     {
-        mbuf->buffer_destroy_listener.notify = _e_video_input_buffer_cb_destroy;
-        wl_signal_add(&tizen_buffer->buffer->destroy_signal, &mbuf->buffer_destroy_listener);
-     }
+   e_devmgr_buffer_free_func_add(mbuf, _e_video_input_buffer_cb_destroy, video);
 
    return mbuf;
+}
+
+static void
+_e_video_cvt_buffer_cb_destroy(E_Devmgr_Buf *mbuf, void *data)
+{
+   E_Video *video = data;
+   E_Video_Fb *vfb;
+   Eina_List *l, *ll;
+
+   video->cvt_buffer_list = eina_list_remove(video->cvt_buffer_list, mbuf);
+
+   /* if current fb is destroyed */
+   if (video->current_fb && video->current_fb->mbuf == mbuf)
+     {
+        _e_video_frame_buffer_show(video, NULL);
+        _e_video_frame_buffer_destroy(video->current_fb);
+        video->current_fb = NULL;
+        VDB("current fb destroyed");
+        return;
+     }
+
+   /* if waiting fb is destroyed */
+   EINA_LIST_FOREACH_SAFE(video->waiting_list, l, ll, vfb)
+     if (vfb->mbuf == mbuf)
+       {
+           video->waiting_list = eina_list_remove(video->waiting_list, vfb);
+          _e_video_frame_buffer_destroy(vfb);
+          return;
+       }
 }
 
 static E_Devmgr_Buf*
@@ -293,12 +287,28 @@ _e_video_cvt_buffer_get(E_Video *video, int width, int height)
    Eina_List *l;
    int i = 0;
 
+   if (video->cvt_buffer_list)
+     {
+        mbuf = eina_list_data_get(video->cvt_buffer_list);
+        EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
+
+        /* if we need bigger cvt_buffers, destroy all cvt_buffers and create */
+        if (width > (mbuf->pitches[0] >> 2))
+          {
+             Eina_List *ll;
+             EINA_LIST_FOREACH_SAFE(video->cvt_buffer_list, l, ll, mbuf)
+               e_devmgr_buffer_unref(mbuf);
+          }
+     }
+
    if (!video->cvt_buffer_list)
      {
         for (i = 0; i < BUFFER_MAX_COUNT; i++)
           {
              mbuf = e_devmgr_buffer_alloc_fb(width, height, EINA_FALSE);
              EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
+
+             e_devmgr_buffer_free_func_add(mbuf, _e_video_cvt_buffer_cb_destroy, video);
 
              video->cvt_buffer_list = eina_list_append(video->cvt_buffer_list, mbuf);
           }
@@ -311,6 +321,9 @@ _e_video_cvt_buffer_get(E_Video *video, int width, int height)
      }
 
    VER("all video framebuffers in use (max:%d)", BUFFER_MAX_COUNT);
+
+//   EINA_LIST_FOREACH(video->cvt_buffer_list, l, mbuf)
+//     VER("%d: cvt(%d) visi(%d)", MSTAMP(mbuf), MBUF_IS_CONVERTING(mbuf), mbuf->showing);
 
    return NULL;
 }
@@ -469,7 +482,7 @@ failed:
 }
 
 static Eina_Bool
-_e_video_geometry_info_get(E_Video *video)
+_e_video_geometry_cal_viewport(E_Video *video)
 {
    E_Client *ec = video->ec;
    E_Comp_Wl_Buffer_Viewport *vp = &ec->comp_data->scaler.buffer_viewport;
@@ -507,6 +520,13 @@ _e_video_geometry_info_get(E_Video *video)
         x2 = wl_fixed_to_int(vp->buffer.src_x + vp->buffer.src_width);
         y2 = wl_fixed_to_int(vp->buffer.src_y + vp->buffer.src_height);
      }
+
+   VDB("transform(%d) scale(%d) buffer(%dx%d) src(%d,%d %d,%d) viewport(%dx%d)",
+       vp->buffer.transform, vp->buffer.scale,
+       ec->comp_data->width_from_buffer, ec->comp_data->height_from_buffer,
+       x1, y1, x2 - x1, y2 - y1,
+       ec->comp_data->width_from_viewport, ec->comp_data->height_from_viewport);
+
    buffer_transform(ec->comp_data->width_from_buffer, ec->comp_data->height_from_buffer,
                     vp->buffer.transform, vp->buffer.scale, x1, y1, &tx1, &ty1);
    buffer_transform(ec->comp_data->width_from_buffer, ec->comp_data->height_from_buffer,
@@ -516,12 +536,6 @@ _e_video_geometry_info_get(E_Video *video)
    video->geo.input_r.y = (ty1 <= ty2) ? ty1 : ty2;
    video->geo.input_r.w = (tx1 <= tx2) ? tx2 - tx1 : tx1 - tx2;
    video->geo.input_r.h = (ty1 <= ty2) ? ty2 - ty1 : ty1 - ty2;
-
-   VDB("transform(%d) scale(%d) buffer(%dx%d) viewport(%dx%d) (%d,%d %d,%d) => (%d,%d %d,%d)",
-       vp->buffer.transform, vp->buffer.scale,
-       ec->comp_data->width_from_buffer, ec->comp_data->height_from_buffer,
-       ec->comp_data->width_from_viewport, ec->comp_data->height_from_viewport,
-       x1, y1, x2, y2, tx1, tx2, ty1, ty2);
 
    /* output geometry */
    if ((sdata = ec->comp_data->sub.data))
@@ -545,6 +559,14 @@ _e_video_geometry_info_get(E_Video *video)
    video->geo.output_r.w = ec->comp_data->width_from_viewport;
    video->geo.output_r.h = ec->comp_data->height_from_viewport;
 
+   e_comp_object_frame_xy_unadjust(ec->frame,
+                                   video->geo.output_r.x, video->geo.output_r.y,
+                                   &video->geo.output_r.x, &video->geo.output_r.y);
+   e_comp_object_frame_wh_unadjust(ec->frame,
+                                   video->geo.output_r.w, video->geo.output_r.h,
+                                   &video->geo.output_r.w, &video->geo.output_r.h);
+
+   /* flip & rotate */
    switch (vp->buffer.transform)
      {
       case WL_OUTPUT_TRANSFORM_NORMAL:
@@ -584,25 +606,34 @@ _e_video_geometry_info_get(E_Video *video)
 }
 
 static void
-_e_video_geometry_calculate(E_Video *video)
+_e_video_geometry_cal_map(E_Video *video, Eina_Bool fake)
 {
-   if ((video->geo.output_r.x + video->geo.output_r.w) > video->crtc_w)
-     {
-        int orig = video->geo.output_r.w;
-        video->geo.output_r.w = video->crtc_w - video->geo.output_r.x;
-        video->geo.input_r.w = video->geo.input_r.w * ((float)video->geo.output_r.w / orig);
-     }
-   if ((video->geo.output_r.y + video->geo.output_r.h) > video->crtc_h)
-     {
-        int orig = video->geo.output_r.h;
-        video->geo.output_r.h = video->crtc_h - video->geo.output_r.y;
-        video->geo.input_r.h = video->geo.input_r.h * ((float)video->geo.output_r.h / orig);
-     }
+   E_Client *ec = video->ec;
+   const Evas_Map *m;
+   Evas_Coord x1, x2, y1, y2;
 
-   if ((video->geo.input_r.x + video->geo.input_r.w) > video->geo.input_w)
-     video->geo.input_r.w = video->geo.input_w - video->geo.input_r.x;
-   if ((video->geo.input_r.y + video->geo.input_r.h) > video->geo.input_h)
-     video->geo.input_r.h = video->geo.input_h - video->geo.input_r.y;
+   EINA_SAFETY_ON_NULL_RETURN(video->ec->frame);
+
+   m = evas_object_map_get(ec->frame);
+   if (!m) return;
+
+   /* If frame has map, it means that ec's geometry is decided by map's geometry.
+    * ec->x,y,w,h and ec->client.x,y,w,h is not useful.
+    */
+
+   evas_map_point_coord_get(m, 0, &x1, &y1, NULL);
+   evas_map_point_coord_get(m, 2, &x2, &y2, NULL);
+
+   if (fake)
+   VIN("frame(%p) m(%p) output(%d,%d %dx%d) => (%d,%d %dx%d)",
+       ec->frame, m, video->geo.output_r.x, video->geo.output_r.y,
+       video->geo.output_r.w, video->geo.output_r.h,
+       x1, y1, x2 - x1, y2 - y1);
+
+   video->geo.output_r.x = x1;
+   video->geo.output_r.y = y1;
+   video->geo.output_r.w = x2 - x1;
+   video->geo.output_r.h = y2 - y1;
 }
 
 static void
@@ -666,7 +697,6 @@ static void
 _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
 {
    uint32_t fx, fy, fw, fh;
-   uint target_msc;
    int new_src_x, new_src_w;
    int new_dst_x, new_dst_w;
    int crtc_id;
@@ -728,36 +758,25 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
        vfb->mbuf->fb_id, vfb->mbuf->width, vfb->mbuf->height,
        new_src_x, vfb->visible_r.y, new_src_w, vfb->visible_r.h,
        new_dst_x, video->geo.output_r.y, new_dst_w, vfb->visible_r.h);
-
-    /* If not DPMS_ON, we call vblank handler directory to do post-process
-     * for video frame buffer handling.
-     */
-   if (e_devicemgr_dpms_get(video->drm_output))
-     {
-        _e_video_vblank_handler(0, 0, 0, (void*)video);
-        return;
-     }
-
-   if (!e_devicemgr_drm_get_cur_msc(video->pipe, &target_msc))
-     {
-         VER("failed: e_devicemgr_drm_get_cur_msc");
-         return;
-     }
-
-   target_msc++;
-
-   if (!e_devicemgr_drm_wait_vblank(video->pipe, &target_msc, video))
-     {
-         VER("failed: e_devicemgr_drm_wait_vblank");
-         return;
-     }
 }
 
 static void
-_e_video_buffer_show(E_Video *video, E_Devmgr_Buf *mbuf, Eina_Rectangle *visible)
+_e_video_buffer_show(E_Video *video, E_Devmgr_Buf *mbuf, Eina_Rectangle *visible, Eina_Bool fake)
 {
-   E_Video_Fb *vfb = _e_video_frame_buffer_create(video, mbuf, visible);
+   Eina_List *l, *ll;
+   E_Video_Fb *vfb;
+
+   EINA_LIST_FOREACH_SAFE(video->waiting_list, l, ll, vfb)
+     {
+        if (!vfb->fake) continue;
+
+        video->waiting_list = eina_list_remove(video->waiting_list, vfb);
+        _e_video_frame_buffer_destroy(vfb);
+     }
+
+   vfb = _e_video_frame_buffer_create(video, mbuf, visible);
    EINA_SAFETY_ON_NULL_RETURN(vfb);
+   vfb->fake = fake;
 
    video->waiting_list = eina_list_append(video->waiting_list, vfb);
 
@@ -769,6 +788,7 @@ _e_video_buffer_show(E_Video *video, E_Devmgr_Buf *mbuf, Eina_Rectangle *visible
      return;
 
    _e_video_frame_buffer_show(video, vfb);
+   _e_video_wait_vblank(video);
 }
 
 static void
@@ -778,9 +798,17 @@ _e_video_cvt_callback(E_Devmgr_Cvt *cvt,
                       void *cvt_data)
 {
    E_Video *video = (E_Video*)cvt_data;
+   Eina_Bool fake = EINA_FALSE;
 
-   _e_video_buffer_show(video, cvt_buffer, &video->cvt_r);
+   if (eina_list_data_find(video->fake_buffer_list, input_buffer))
+     {
+        e_devmgr_buffer_unref(input_buffer);
+        fake = EINA_TRUE;
+     }
 
+   _e_video_buffer_show(video, cvt_buffer, &video->cvt_r, fake);
+
+   e_devmgr_buffer_unref(input_buffer);
 #if 0
    static int i;
    e_devmgr_buffer_dump(input_buffer, "in", i, 0);
@@ -806,8 +834,8 @@ _e_video_cvt_configure(E_Video *video, E_Devmgr_Buf *cvt_buffer)
    dst.drmfmt = DRM_FORMAT_XRGB8888;
    dst.width = cvt_buffer->pitches[0] >> 2;
    dst.height = cvt_buffer->height;
-   dst.crop.w = cvt_buffer->width;
-   dst.crop.h = cvt_buffer->height;
+   dst.crop.w = video->geo.output_r.w;
+   dst.crop.h = video->geo.output_r.h;
 
    dst.hflip = video->geo.hflip;
    dst.vflip = video->geo.vflip;
@@ -828,21 +856,63 @@ _e_video_vblank_handler(unsigned int sequence,
    E_Video *video = data;
    E_Video_Fb *vfb;
 
+   video->wait_vblank = EINA_FALSE;
+
+   if (video->need_render)
+     _e_video_render(video, EINA_TRUE);
+
+   vfb = eina_list_nth(video->waiting_list, 0);
+   if (!vfb) return;
+
+   video->waiting_list = eina_list_remove(video->waiting_list, vfb);
+
    if (video->current_fb)
      {
         _e_video_frame_buffer_destroy(video->current_fb);
         video->current_fb = NULL;
      }
 
-   vfb = eina_list_nth(video->waiting_list, 0);
-   EINA_SAFETY_ON_NULL_RETURN(vfb);
-   video->waiting_list = eina_list_remove(video->waiting_list, vfb);
    video->current_fb = vfb;
 
    VDB("mbuf(%d) showing", MSTAMP(vfb->mbuf));
 
    if ((vfb = eina_list_nth(video->waiting_list, 0)))
-      _e_video_frame_buffer_show(video, vfb);
+     {
+        _e_video_frame_buffer_show(video, vfb);
+        _e_video_wait_vblank(video);
+     }
+}
+
+static void
+_e_video_wait_vblank(E_Video *video)
+{
+   uint target_msc;
+
+    /* If not DPMS_ON, we call vblank handler directory to do post-process
+     * for video frame buffer handling.
+     */
+   if (e_devicemgr_dpms_get(video->drm_output))
+     {
+        _e_video_vblank_handler(0, 0, 0, (void*)video);
+        return;
+     }
+
+   if (video->wait_vblank) return;
+   video->wait_vblank = EINA_TRUE;
+
+   if (!e_devicemgr_drm_get_cur_msc(video->pipe, &target_msc))
+     {
+         VER("failed: e_devicemgr_drm_get_cur_msc");
+         return;
+     }
+
+   target_msc++;
+
+   if (!e_devicemgr_drm_wait_vblank(video->pipe, &target_msc, video))
+     {
+         VER("failed: e_devicemgr_drm_wait_vblank");
+         return;
+     }
 }
 
 static void
@@ -853,6 +923,21 @@ _e_video_cb_client_destroy(struct wl_listener *listener, void *data)
    _e_video_destroy(video);
 }
 
+static void
+_e_video_evas_cb_move(void *data, Evas *e EINA_UNUSED, Evas_Object *obj EINA_UNUSED, void *event_info EINA_UNUSED)
+{
+   E_Video *video;
+   E_Client *ec;
+
+   if (!(video = data)) return;
+   if (!(ec = video->ec)) return;
+   if (e_object_is_del(E_OBJECT(ec))) return;
+
+   video->need_render = EINA_TRUE;
+
+   _e_video_wait_vblank(video);
+}
+
 static E_Video*
 _e_video_create(E_Client *ec)
 {
@@ -861,6 +946,7 @@ _e_video_create(E_Client *ec)
    struct wl_client *client;
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(ec, NULL);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(ec->frame, NULL);
 
    cdata = e_pixmap_cdata_get(ec->pixmap);
    EINA_SAFETY_ON_NULL_RETURN_VAL(cdata, NULL);
@@ -872,7 +958,7 @@ _e_video_create(E_Client *ec)
    EINA_SAFETY_ON_NULL_RETURN_VAL(video, NULL);
 
    video->ec = ec;
-   video->cvt_need_configure = EINA_TRUE;
+   video->window = e_client_util_win_get(ec);
 
    _e_video_format_info_get(video);
 
@@ -890,6 +976,8 @@ _e_video_create(E_Client *ec)
    video->client_destroy_listener.notify = _e_video_cb_client_destroy;
    wl_client_add_destroy_listener(client, &video->client_destroy_listener);
 
+   evas_object_event_callback_add(ec->frame, EVAS_CALLBACK_MOVE, _e_video_evas_cb_move, video);
+
    return video;
 }
 
@@ -898,9 +986,13 @@ _e_video_destroy(E_Video *video)
 {
    E_Devmgr_Buf *mbuf;
    E_Video_Fb *vfb;
+   Eina_List *l = NULL, *ll = NULL;
 
    if (!video)
       return;
+
+   if (video->ec && video->ec->frame)
+     evas_object_event_callback_del(video->ec->frame, EVAS_CALLBACK_MOVE, _e_video_evas_cb_move);
 
    if (video->client_destroy_listener.notify)
      {
@@ -917,7 +1009,7 @@ _e_video_destroy(E_Video *video)
         video->current_fb = NULL;
      }
 
-   EINA_LIST_FREE(video->waiting_list, vfb)
+   EINA_LIST_FOREACH_SAFE(video->waiting_list, l, ll, vfb)
      _e_video_frame_buffer_destroy(vfb);
 
    /* destroy converter second */
@@ -925,30 +1017,31 @@ _e_video_destroy(E_Video *video)
      e_devmgr_cvt_destroy(video->cvt);
 
    /* others */
-   EINA_LIST_FREE(video->input_buffer_list, mbuf)
-     {
-        if (mbuf->buffer_destroy_listener.notify)
-          {
-             wl_list_remove(&mbuf->buffer_destroy_listener.link);
-             mbuf->buffer_destroy_listener.notify = NULL;
-          }
-        e_devmgr_buffer_unref(mbuf);
-     }
+   EINA_LIST_FOREACH_SAFE(video->input_buffer_list, l, ll, mbuf)
+     e_devmgr_buffer_unref(mbuf);
 
-   EINA_LIST_FREE(video->cvt_buffer_list, mbuf)
+   EINA_LIST_FOREACH_SAFE(video->cvt_buffer_list, l, ll, mbuf)
+     e_devmgr_buffer_unref(mbuf);
+
+   EINA_LIST_FOREACH_SAFE(video->fake_buffer_list, l, ll, mbuf)
      e_devmgr_buffer_unref(mbuf);
 
    e_devicemgr_drm_vblank_handler_del(_e_video_vblank_handler, video);
 
    video_list = eina_list_remove(video_list, video);
 
-   VIN("window(0x%08"PRIxPTR") stop", e_client_util_win_get(video->ec));
+   VIN("stop");
 
    free(video);
+
+#if 1
+   if (e_devmgr_buffer_list_length() > 0)
+     e_devmgr_buffer_list_print();
+#endif
 }
 
 static void
-_e_video_render(E_Video *video)
+_e_video_render(E_Video *video, Eina_Bool fake)
 {
    E_Comp_Wl_Buffer *buffer;
    E_Drm_Buffer *drm_buffer;
@@ -956,8 +1049,17 @@ _e_video_render(E_Video *video)
    E_Devmgr_Buf *cvt_buffer = NULL;
    E_Devmgr_Buf *input_buffer = NULL;
 
+   video->need_render = EINA_FALSE;
+
+   /* get geometry information with buffer scale, transform and viewport. */
+   if (!_e_video_geometry_cal_viewport(video))
+     return;
+
+   _e_video_geometry_cal_map(video, fake);
+
    buffer = e_pixmap_resource_get(video->ec->pixmap);
    EINA_SAFETY_ON_NULL_RETURN(buffer);
+   EINA_SAFETY_ON_FALSE_RETURN(buffer->type == E_COMP_WL_BUFFER_TYPE_DRM);
 
    drm_buffer = e_drm_buffer_get(buffer->resource);
    EINA_SAFETY_ON_NULL_RETURN(drm_buffer);
@@ -980,34 +1082,64 @@ _e_video_render(E_Video *video)
        drm_buffer->stride[0], drm_buffer->stride[1], drm_buffer->stride[2],
        drm_buffer->offset[0], drm_buffer->offset[1], drm_buffer->offset[2]);
 
+   /* 2. In case a buffer is RGB and the size of input/output *WHICH CLIENT SENT*
+    * is same, we don't need to convert video. Otherwise, we should need a converter.
+    */
+   if (!IS_RGB(video->drmfmt) ||
+       video->geo.input_r.w != video->geo.output_r.w ||
+       video->geo.input_r.h != video->geo.output_r.h ||
+       video->geo.hflip || video->geo.vflip || video->geo.degree)
+     if (!video->cvt)
+       {
+          video->cvt = e_devmgr_cvt_create();
+          EINA_SAFETY_ON_NULL_GOTO(video->cvt, render_fail);
+
+//          e_devmgr_cvt_debug(video->cvt, EINA_TRUE);
+
+          e_devmgr_cvt_cb_add(video->cvt, _e_video_cvt_callback, video);
+       }
+
    if (video->cvt)
      {
-        int cvt_w = video->geo.output_r.w;
-        int cvt_h = video->geo.output_r.h;
-
         input_buffer = _e_video_input_buffer_get(video, tizen_buffer, EINA_FALSE);
         EINA_SAFETY_ON_NULL_GOTO(input_buffer, render_fail);
 
-        cvt_buffer = _e_video_cvt_buffer_get(video, cvt_w, cvt_h);
+        cvt_buffer = _e_video_cvt_buffer_get(video, video->geo.output_r.w, video->geo.output_r.h);
         EINA_SAFETY_ON_NULL_GOTO(cvt_buffer, render_fail);
 
         /* configure a converter if needed */
-        if (video->cvt_need_configure)
+        if (video->old_geo.input_w != video->geo.input_w || video->old_geo.input_h != video->geo.input_h ||
+            video->old_geo.input_r.x != video->geo.input_r.x || video->old_geo.input_r.y != video->geo.input_r.y ||
+            video->old_geo.input_r.w != video->geo.input_r.w || video->old_geo.input_r.h != video->geo.input_r.h ||
+            video->old_geo.output_r.w != video->geo.output_r.w || video->old_geo.output_r.h != video->geo.output_r.h ||
+            video->old_geo.hflip != video->geo.hflip || video->old_geo.vflip != video->geo.vflip ||
+            video->old_geo.degree != video->geo.degree)
           {
+             VDB("geometry(%dx%d %d,%d,%d,%d %d,%d,%d,%d %d&%d %d)",
+                 video->geo.input_w, video->geo.input_h,
+                 video->geo.input_r.x, video->geo.input_r.y, video->geo.input_r.w, video->geo.input_r.h,
+                 video->geo.output_r.x, video->geo.output_r.y, video->geo.output_r.w, video->geo.output_r.h,
+                 video->geo.hflip, video->geo.vflip, video->geo.degree);
+
              if (!_e_video_cvt_configure(video, cvt_buffer))
                goto render_fail;
-             video->cvt_need_configure = EINA_FALSE;
           }
 
         if (!e_devmgr_cvt_convert(video->cvt, input_buffer, cvt_buffer))
           goto render_fail;
+
+        if (fake)
+          {
+             video->fake_buffer_list = eina_list_append(video->fake_buffer_list, input_buffer);
+             e_devmgr_buffer_ref(input_buffer);
+          }
      }
    else
      {
         input_buffer = _e_video_input_buffer_get(video, tizen_buffer, EINA_TRUE);
         EINA_SAFETY_ON_NULL_GOTO(input_buffer, render_fail);
 
-        _e_video_buffer_show(video, input_buffer, &video->geo.input_r);
+        _e_video_buffer_show(video, input_buffer, &video->geo.input_r, fake);
 
 #if 0
          static int i;
@@ -1015,25 +1147,16 @@ _e_video_render(E_Video *video)
 #endif
      }
 
+   video->old_geo = video->geo;
+
    return;
 
 render_fail:
    if (input_buffer)
-     {
-        video->input_buffer_list = eina_list_remove(video->input_buffer_list, input_buffer);
-        if (input_buffer->buffer_destroy_listener.notify)
-          {
-             wl_list_remove(&input_buffer->buffer_destroy_listener.link);
-             input_buffer->buffer_destroy_listener.notify = NULL;
-          }
-        e_devmgr_buffer_unref(input_buffer);
-     }
+     e_devmgr_buffer_unref(input_buffer);
 
    if (cvt_buffer)
-     {
-        video->cvt_buffer_list = eina_list_remove(video->cvt_buffer_list, cvt_buffer);
-        e_devmgr_buffer_unref(cvt_buffer);
-     }
+     e_devmgr_buffer_unref(cvt_buffer);
 }
 
 static Eina_Bool
@@ -1052,7 +1175,7 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
 
    buffer = e_pixmap_resource_get(ec->pixmap);
 
-   /* buffer can be NULL in case of camera/video's mode change. Do nothing and
+   /* buffer can be NULL when camera/video's mode changed. Do nothing and
     * keep previous frame in this case.
     */
    if (!buffer) return ECORE_CALLBACK_PASS_ON;
@@ -1062,7 +1185,6 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
       return ECORE_CALLBACK_PASS_ON;
 
    DBG("======================================");
-   /* find video */
    video = find_video_from_ec(ec);
    if (!video)
      {
@@ -1070,44 +1192,8 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
         EINA_SAFETY_ON_NULL_RETURN_VAL(video, ECORE_CALLBACK_PASS_ON);
      }
 
-   /* 1. get geometry information with buffer scale, transform and viewport */
-   if (!_e_video_geometry_info_get(video))
-     return ECORE_CALLBACK_PASS_ON;
-
-   /* 2. In case a buffer is RGB and the size of input/output *WHICH CLIENT SENT*
-    * is same, we don't need to convert video. Otherwise, we should need a converter.
-    */
-   if (!IS_RGB(video->drmfmt) ||
-       video->geo.input_r.w != video->geo.output_r.w ||
-       video->geo.input_r.h != video->geo.output_r.h ||
-       video->geo.hflip || video->geo.vflip || video->geo.degree)
-     if (!video->cvt)
-       {
-          video->cvt = e_devmgr_cvt_create();
-          EINA_SAFETY_ON_NULL_RETURN_VAL(video->cvt, ECORE_CALLBACK_PASS_ON);
-
-          e_devmgr_cvt_cb_add(video->cvt, _e_video_cvt_callback, video);
-       }
-
-   /* 3. change geometry information */
-   _e_video_geometry_calculate(video);
-
-   if (memcmp(&video->old_geo, &video->geo, sizeof(video->geo)))
-     {
-        video->cvt_need_configure = EINA_TRUE;
-
-        VIN("window(0x%08"PRIxPTR") geometry(%dx%d %d,%d,%d,%d %d,%d,%d,%d %d&%d %d)",
-            e_client_util_win_get(ec), video->geo.input_w, video->geo.input_h,
-            video->geo.input_r.x, video->geo.input_r.y, video->geo.input_r.w, video->geo.input_r.h,
-            video->geo.output_r.x, video->geo.output_r.y, video->geo.output_r.w, video->geo.output_r.h,
-            video->geo.hflip, video->geo.vflip, video->geo.degree);
-     }
-
-   /* 4. render */
-   _e_video_render(video);
-   video->old_geo = video->geo;
-
-   DBG("======================================...");
+   _e_video_render(video, EINA_FALSE);
+   DBG("======================================.");
 
    return ECORE_CALLBACK_PASS_ON;
 }
