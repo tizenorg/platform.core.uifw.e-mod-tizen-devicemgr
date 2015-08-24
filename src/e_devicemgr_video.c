@@ -209,6 +209,9 @@ _e_video_input_buffer_cb_destroy(E_Devmgr_Buf *mbuf, void *data)
    video->input_buffer_list = eina_list_remove(video->input_buffer_list, mbuf);
    video->fake_buffer_list = eina_list_remove(video->fake_buffer_list, mbuf);
 
+   if (mbuf->type == TYPE_TB)
+     VDB("wl_buffer@%d done", wl_resource_get_id(mbuf->b.tizen_buffer->drm_buffer->resource));
+
    /* if cvt exists, it means that input buffer is not a frame buffer. */
    if (video->cvt)
      return;
@@ -249,6 +252,40 @@ _e_video_input_buffer_get(E_Video *video, Tizen_Buffer *tizen_buffer, Eina_Bool 
    e_devmgr_buffer_free_func_add(mbuf, _e_video_input_buffer_cb_destroy, video);
 
    return mbuf;
+}
+
+static void
+_e_video_input_buffer_valid(E_Video *video, Tizen_Buffer *tizen_buffer)
+{
+   E_Devmgr_Buf *mbuf;
+   Eina_List *l;
+
+   EINA_LIST_FOREACH(video->input_buffer_list, l, mbuf)
+     {
+        if (mbuf->type != TYPE_TB) continue;
+        if (mbuf->b.tizen_buffer == tizen_buffer)
+          {
+             WRN("got wl_buffer@%d twice", wl_resource_get_id(tizen_buffer->drm_buffer->resource));
+             return;
+          }
+     }
+
+   EINA_LIST_FOREACH(video->input_buffer_list, l, mbuf)
+     {
+        E_Drm_Buffer *temp;
+
+        if (mbuf->type != TYPE_TB) continue;
+
+        temp = mbuf->b.tizen_buffer->drm_buffer;
+        if (temp->name[0] == tizen_buffer->drm_buffer->name[0] &&
+            temp->offset[0] == tizen_buffer->drm_buffer->offset[0])
+          {
+             WRN("tearing: wl_buffer@%d, wl_buffer@%d are same",
+                 wl_resource_get_id(temp->resource),
+                 wl_resource_get_id(tizen_buffer->drm_buffer->resource));
+             return;
+          }
+     }
 }
 
 static void
@@ -1075,11 +1112,26 @@ _e_video_render(E_Video *video, Eina_Bool fake)
         return;
      }
 
-   VDB("video buffer: %c%c%c%c %dx%d (%d,%d,%d) (%d,%d,%d) (%d,%d,%d)",
+   if (fake)
+     {
+        E_Devmgr_Buf *last = eina_list_last_data_get(video->input_buffer_list);
+
+        /* If a fake buffer is not the same with last buffer, we skip rendering.
+         * The fake buffer which surface has currnetly will be rendered by
+         * _e_video_cb_ec_buffer_change.
+         */
+        if (!last || (last && last->type == TYPE_BO && last->b.tizen_buffer != tizen_buffer))
+          return;
+     }
+   else
+     _e_video_input_buffer_valid(video, tizen_buffer);
+
+   VDB("video buffer: %c%c%c%c %dx%d (%d,%d,%d) (%d,%d,%d) (%d,%d,%d): wl_buffer@%d fake(%d)",
        FOURCC_STR(drm_buffer->format), drm_buffer->width, drm_buffer->height,
        drm_buffer->name[0], drm_buffer->name[1], drm_buffer->name[2],
        drm_buffer->stride[0], drm_buffer->stride[1], drm_buffer->stride[2],
-       drm_buffer->offset[0], drm_buffer->offset[1], drm_buffer->offset[2]);
+       drm_buffer->offset[0], drm_buffer->offset[1], drm_buffer->offset[2],
+       wl_resource_get_id(drm_buffer->resource), fake);
 
    /* 2. In case a buffer is RGB and the size of input/output *WHICH CLIENT SENT*
     * is same, we don't need to convert video. Otherwise, we should need a converter.
@@ -1254,6 +1306,10 @@ _e_video_buffer_pool_cb_reference_buffer(void *user_data, E_Drm_Buffer *drm_buff
          tizen_buffer->bo[i] = tbm_bo_import(e_devmgr_bufmgr, drm_buffer->name[i]);
          tizen_buffer->name[i] = drm_buffer->name[i];
        }
+
+   DBG("wl_buffer@%d (%d,%d,%d) create",
+       wl_resource_get_id(drm_buffer->resource),
+       drm_buffer->name[0], drm_buffer->name[1], drm_buffer->name[2]);
 }
 
 static void
@@ -1267,6 +1323,10 @@ _e_video_buffer_pool_cb_release_buffer(void *user_data, E_Drm_Buffer *drm_buffer
    for (i = 0; i < 3; i++)
      if (tizen_buffer->bo[i])
        tbm_bo_unref(tizen_buffer->bo[i]);
+
+   DBG("wl_buffer@%d (%d,%d,%d) destroy",
+       wl_resource_get_id(drm_buffer->resource),
+       drm_buffer->name[0], drm_buffer->name[1], drm_buffer->name[2]);
 
    free(tizen_buffer);
    drm_buffer->driver_buffer = NULL;
