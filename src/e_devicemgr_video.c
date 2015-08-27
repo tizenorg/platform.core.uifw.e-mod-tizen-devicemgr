@@ -1070,7 +1070,7 @@ _e_video_destroy(E_Video *video)
 
    free(video);
 
-#if 1
+#if 0
    if (e_devmgr_buffer_list_length() > 0)
      e_devmgr_buffer_list_print();
 #endif

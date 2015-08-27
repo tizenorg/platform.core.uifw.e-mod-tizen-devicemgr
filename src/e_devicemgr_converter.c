@@ -126,27 +126,13 @@ fill_config(E_Devmgr_CvtType type, E_Devmgr_Cvt_Prop *prop, struct drm_exynos_ip
    config->pos.h = (__u32)prop->crop.h;
 }
 
-static Eina_Bool
+static void
 set_mbuf_converting(E_Devmgr_Buf *mbuf, E_Devmgr_Cvt *cvt, Eina_Bool converting)
 {
-   E_Devmgr_Cvt *temp;
-
    if (!converting)
-     {
-        mbuf->convert_info = eina_list_remove(mbuf->convert_info, cvt);
-        return EINA_TRUE;
-     }
+     mbuf->convert_info = eina_list_remove(mbuf->convert_info, cvt);
    else
-     {
-        temp = eina_list_data_find(mbuf->convert_info, cvt);
-        if (temp)
-          {
-             ERR("failed: %d already converting %d.", cvt->stamp, mbuf->stamp);
-             return EINA_FALSE;
-          }
-        mbuf->convert_info = eina_list_append(mbuf->convert_info, cvt);
-        return EINA_TRUE;
-     }
+     mbuf->convert_info = eina_list_append(mbuf->convert_info, cvt);
 }
 
 static void
@@ -248,8 +234,7 @@ _e_devmgr_cvt_queue(E_Devmgr_Cvt *cvt, E_Devmgr_CvtBuf *cbuf)
    int i;
    int index;
 
-   if (!set_mbuf_converting(cbuf->mbuf, cvt, EINA_TRUE))
-     return EINA_FALSE;
+   set_mbuf_converting(cbuf->mbuf, cvt, EINA_TRUE);
 
    index = _e_devmgr_cvt_get_empty_index(cvt, cbuf->type);
 

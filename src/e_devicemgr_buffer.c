@@ -629,6 +629,53 @@ _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func)
 void
 e_devmgr_buffer_clear(E_Devmgr_Buf *mbuf)
 {
+   EINA_SAFETY_ON_NULL_RETURN(mbuf);
+
+   if (mbuf->secure)
+     {
+        BDB("can't clear secure buffer");
+        return;
+     }
+
+   switch(mbuf->drmfmt)
+     {
+      case DRM_FORMAT_ARGB8888:
+      case DRM_FORMAT_XRGB8888:
+        memset(mbuf->ptrs[0], 0, mbuf->pitches[0] * mbuf->height);
+        break;
+      case DRM_FORMAT_YVU420:
+      case DRM_FORMAT_YUV420:
+        memset((char*)mbuf->ptrs[0] + mbuf->offsets[0], 0x10, mbuf->pitches[0] * mbuf->height);
+        memset((char*)mbuf->ptrs[1] + mbuf->offsets[1], 0x80, mbuf->pitches[1] * (mbuf->height >> 1));
+        memset((char*)mbuf->ptrs[2] + mbuf->offsets[2], 0x80, mbuf->pitches[2] * (mbuf->height >> 1));
+        break;
+      case DRM_FORMAT_NV12:
+      case DRM_FORMAT_NV21:
+        memset((char*)mbuf->ptrs[0] + mbuf->offsets[0], 0x10, mbuf->pitches[0] * mbuf->height);
+        memset((char*)mbuf->ptrs[1] + mbuf->offsets[1], 0x80, mbuf->pitches[1] * (mbuf->height >> 1));
+        break;
+      case DRM_FORMAT_YUYV:
+        {
+           int *ibuf = (int*)mbuf->ptrs[0];
+           int i, size = mbuf->pitches[0] * mbuf->height / 4;
+
+           for (i = 0 ; i < size ; i++)
+             ibuf[i] = 0x10801080;
+        }
+        break;
+      case DRM_FORMAT_UYVY:
+        {
+           int *ibuf = (int*)mbuf->ptrs[0];
+           int i, size = mbuf->pitches[0] * mbuf->height / 4;
+
+           for (i = 0 ; i < size ; i++)
+             ibuf[i] = 0x80108010; /* YUYV -> 0xVYUY */
+        }
+        break;
+      default:
+        BWR("can't clear %c%c%c%c buffer", FOURCC_STR(mbuf->drmfmt));
+        return;
+     }
 }
 
 Eina_Bool
@@ -910,7 +957,7 @@ e_devmgr_buffer_get_mills(void)
 }
 
 static void
-_dump_raw(const char * file, void *data1, int size1, void *data2, int size2)
+_dump_raw(const char * file, void *data1, int size1, void *data2, int size2, void *data3, int size3)
 {
    unsigned int * blocks;
    FILE * fp = fopen(file, "w+");
@@ -923,6 +970,12 @@ _dump_raw(const char * file, void *data1, int size1, void *data2, int size2)
      {
         blocks = (unsigned int*)data2;
         fwrite(blocks, 1, size2, fp);
+     }
+
+   if (size3 > 0)
+     {
+        blocks = (unsigned int*)data3;
+        fwrite(blocks, 1, size3, fp);
      }
 
    fclose(fp);
@@ -991,7 +1044,6 @@ void
 e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *prefix, int nth, Eina_Bool raw)
 {
    char path[128];
-   tbm_bo bo[3] = {0,};
    const char *dir = "/tmp/dump";
 
    if (!mbuf) return;
@@ -1009,37 +1061,39 @@ e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *prefix, int nth, Eina_Bool 
      snprintf(path, sizeof(path), "%s/%s_%c%c%c%c_%dx%d_%03d.yuv", dir, prefix,
               FOURCC_STR(mbuf->drmfmt), mbuf->pitches[0], mbuf->height, nth);
 
-   if (IS_RGB(mbuf->drmfmt))
+   switch(mbuf->drmfmt)
      {
+      case DRM_FORMAT_ARGB8888:
+      case DRM_FORMAT_XRGB8888:
         if (raw)
-          _dump_raw(path, mbuf->ptrs[0], mbuf->pitches[0] * mbuf->height, NULL, 0);
+          _dump_raw(path, mbuf->ptrs[0], mbuf->pitches[0] * mbuf->height, NULL, 0, NULL, 0);
         else
           _dump_png(path, mbuf->ptrs[0], mbuf->pitches[0] / 4, mbuf->height);
-     }
-   else
-     {
-        int size;
-        switch(mbuf->drmfmt)
-          {
-             case DRM_FORMAT_YVU420:
-             case DRM_FORMAT_YUV420:
-             case DRM_FORMAT_NV12:
-             case DRM_FORMAT_NV21:
-                size = mbuf->pitches[0] * mbuf->height * 1.5;
-                break;
-             case DRM_FORMAT_YUYV:
-             case DRM_FORMAT_UYVY:
-                size = mbuf->pitches[0] * mbuf->height * 2;
-                break;
-             default:
-                size = tbm_bo_size(bo[0]);
-                break;
-          }
-        if (!bo[1])
-          _dump_raw(path, mbuf->ptrs[0], size, NULL, 0);
-        else
-          _dump_raw(path, mbuf->ptrs[0], mbuf->pitches[0] * mbuf->height,
-                    mbuf->ptrs[1], mbuf->pitches[1] * mbuf->height);
+        break;
+      case DRM_FORMAT_YVU420:
+      case DRM_FORMAT_YUV420:
+        _dump_raw(path,
+                  (char*)mbuf->ptrs[0] + mbuf->offsets[0], mbuf->pitches[0] * mbuf->height,
+                  (char*)mbuf->ptrs[1] + mbuf->offsets[1], mbuf->pitches[1] * (mbuf->height >> 1),
+                  (char*)mbuf->ptrs[2] + mbuf->offsets[2], mbuf->pitches[2] * (mbuf->height >> 1));
+        break;
+      case DRM_FORMAT_NV12:
+      case DRM_FORMAT_NV21:
+        _dump_raw(path,
+                  (char*)mbuf->ptrs[0] + mbuf->offsets[0], mbuf->pitches[0] * mbuf->height,
+                  (((char*)mbuf->ptrs[1]) + mbuf->offsets[1]), mbuf->pitches[1] * (mbuf->height >> 1),
+                  NULL, 0);
+        break;
+      case DRM_FORMAT_YUYV:
+      case DRM_FORMAT_UYVY:
+        _dump_raw(path,
+                  (char*)mbuf->ptrs[0] + mbuf->offsets[0], mbuf->pitches[0] * mbuf->height,
+                  NULL, 0,
+                  NULL, 0);
+        break;
+      default:
+        BWR("can't clear %c%c%c%c buffer", FOURCC_STR(mbuf->drmfmt));
+        return;
      }
 
    BDB("dump %s", path);
