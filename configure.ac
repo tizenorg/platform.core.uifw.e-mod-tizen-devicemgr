@@ -105,6 +105,8 @@ dnl ========================================================================
 # the following command will create config.h from config.h.in
 AC_CONFIG_HEADERS([config.h])
 
+AC_SYS_LARGEFILE
+
 # create FILE for all FILE.in.
 # FILES contains definitions made with AC_SUBST.
 AC_CONFIG_FILES([

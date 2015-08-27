@@ -1,3 +1,7 @@
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <sys/mman.h>
 #include <e.h>
 #include <Ecore_Drm.h>
