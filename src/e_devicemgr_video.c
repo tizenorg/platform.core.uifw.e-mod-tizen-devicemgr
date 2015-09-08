@@ -2,7 +2,7 @@
 #include "e_devicemgr_dpms.h"
 #include "e_devicemgr_converter.h"
 
-#define BUFFER_MAX_COUNT   5
+#define BUFFER_MAX_COUNT   3
 #define MIN_WIDTH   32
 
 #define VER(fmt,arg...)   ERR("window(0x%08"PRIxPTR"): "fmt, video->window, ##arg)
