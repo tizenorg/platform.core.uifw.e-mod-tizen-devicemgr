@@ -54,6 +54,7 @@ struct _E_Video
    void *cvt;
    Eina_Rectangle cvt_r;    /* converter dst content rect */
    Eina_List *cvt_buffer_list;
+   Eina_List *next_buffer;
 
    /* vblank handling */
    Eina_Bool   wait_vblank;
@@ -349,18 +350,27 @@ _e_video_cvt_buffer_get(E_Video *video, int width, int height)
 
              video->cvt_buffer_list = eina_list_append(video->cvt_buffer_list, mbuf);
           }
+
+        video->next_buffer = video->cvt_buffer_list;
      }
 
-   EINA_LIST_FOREACH(video->cvt_buffer_list, l, mbuf)
+   EINA_SAFETY_ON_NULL_RETURN_VAL(video->cvt_buffer_list, NULL);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(video->next_buffer, NULL);
+
+   l = video->next_buffer;
+   while ((mbuf = video->next_buffer->data))
      {
+        video->next_buffer = (video->next_buffer->next) ? video->next_buffer->next : video->cvt_buffer_list;
+
         if (!MBUF_IS_CONVERTING(mbuf) && !mbuf->showing)
           return mbuf;
+
+        if (l == video->next_buffer)
+          {
+             VER("all video framebuffers in use (max:%d)", BUFFER_MAX_COUNT);
+             return NULL;
+          }
      }
-
-   VER("all video framebuffers in use (max:%d)", BUFFER_MAX_COUNT);
-
-//   EINA_LIST_FOREACH(video->cvt_buffer_list, l, mbuf)
-//     VER("%d: cvt(%d) visi(%d)", MSTAMP(mbuf), MBUF_IS_CONVERTING(mbuf), mbuf->showing);
 
    return NULL;
 }
