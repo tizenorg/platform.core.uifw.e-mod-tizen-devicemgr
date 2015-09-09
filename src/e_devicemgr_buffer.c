@@ -248,7 +248,7 @@ E_Devmgr_Buf*
 _e_devmgr_buffer_create(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char *func)
 {
    E_Devmgr_Buf *mbuf = NULL;
-   uint stamp, pitches[4] = {0,};
+   uint stamp, pitches[4] = {0,}, lengths[4] = {0,};
    int i;
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(tizen_buffer, NULL);
@@ -279,13 +279,36 @@ _e_devmgr_buffer_create(Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char
           }
      }
 
-   e_devmgr_buf_image_attr(mbuf->drmfmt, mbuf->width, mbuf->height, pitches, NULL);
-   if (!IS_RGB(mbuf->drmfmt))
+   e_devmgr_buf_image_attr(mbuf->drmfmt, mbuf->width, mbuf->height, pitches, lengths);
+
+   switch(mbuf->drmfmt)
      {
-        if (mbuf->pitches[1] == 0 && pitches[1] > 0)
-          mbuf->pitches[1] = pitches[1];
-        if (mbuf->pitches[2] == 0 && pitches[2] > 0)
-          mbuf->pitches[2] = pitches[2];
+      case DRM_FORMAT_YVU420:
+      case DRM_FORMAT_YUV420:
+        if (mbuf->pitches[1] == 0 && mbuf->offsets[1] == 0 && !mbuf->ptrs[1])
+          {
+             mbuf->pitches[1] = pitches[1];
+             mbuf->offsets[1] = lengths[0];
+             mbuf->ptrs[1] = mbuf->ptrs[0];
+          }
+        if (mbuf->pitches[2] == 0 && mbuf->offsets[2] == 0 && !mbuf->ptrs[2])
+          {
+             mbuf->pitches[2] = pitches[2];
+             mbuf->offsets[2] = lengths[0] + lengths[1];
+             mbuf->ptrs[2] = mbuf->ptrs[0];
+          }
+        break;
+      case DRM_FORMAT_NV12:
+      case DRM_FORMAT_NV21:
+        if (mbuf->pitches[1] == 0 && mbuf->offsets[1] == 0 && !mbuf->ptrs[1])
+          {
+             mbuf->pitches[1] = pitches[1];
+             mbuf->offsets[1] = lengths[0];
+             mbuf->ptrs[1] = mbuf->ptrs[0];
+          }
+        break;
+      default:
+        break;
      }
 
    mbuf->type = TYPE_TB;
@@ -459,6 +482,7 @@ E_Devmgr_Buf*
 _e_devmgr_buffer_alloc(int width, int height, uint drmfmt, Eina_Bool secure, const char *func)
 {
    E_Devmgr_Buf *mbuf = NULL;
+   uint length[4] = {0,};
    uint stamp;
    int size;
 
@@ -472,7 +496,7 @@ _e_devmgr_buffer_alloc(int width, int height, uint drmfmt, Eina_Bool secure, con
    mbuf->width = width;
    mbuf->height = height;
 
-   size = e_devmgr_buf_image_attr(drmfmt, ROUNDUP(width, 16), height, mbuf->pitches, NULL);
+   size = e_devmgr_buf_image_attr(drmfmt, ROUNDUP(width, 16), height, mbuf->pitches, length);
 
    mbuf->type = TYPE_BO;
 
@@ -486,7 +510,25 @@ _e_devmgr_buffer_alloc(int width, int height, uint drmfmt, Eina_Bool secure, con
    EINA_SAFETY_ON_FALSE_GOTO(mbuf->handles[0] > 0, alloc_fail);
 
    if (!secure)
-     mbuf->ptrs[0] = tbm_bo_get_handle(mbuf->b.bo[0], TBM_DEVICE_CPU).ptr;
+     {
+        mbuf->ptrs[0] = tbm_bo_get_handle(mbuf->b.bo[0], TBM_DEVICE_CPU).ptr;
+        switch(mbuf->drmfmt)
+          {
+           case DRM_FORMAT_YVU420:
+           case DRM_FORMAT_YUV420:
+             mbuf->offsets[1] = length[0];
+             mbuf->offsets[2] = length[0] + length[1];
+             mbuf->ptrs[2] = mbuf->ptrs[1] = mbuf->ptrs[0];
+             break;
+           case DRM_FORMAT_NV12:
+           case DRM_FORMAT_NV21:
+             mbuf->offsets[1] = length[0];
+             mbuf->ptrs[1] = mbuf->ptrs[0];
+             break;
+           default:
+             break;
+          }
+     }
 
    mbuf->secure = secure;
 
@@ -866,77 +908,56 @@ cant_convert:
    if (dst_img) pixman_image_unref(dst_img);
 }
 
-static void
-_copy_image_YUV422(unsigned char *s, uint *s_pitches, unsigned char *d, uint *d_pitches, int height)
-{
-   int i;
-
-   for (i = 0; i < height; i++)
-     {
-        memcpy(d, s, s_pitches[i]);
-        s += s_pitches[i];
-        d += d_pitches[i];
-     }
-}
-
-static void
-_copy_image_YUV420(unsigned char *s, uint *s_pitches, unsigned char *d, uint *d_pitches, int height)
-{
-   int i, j, c_height;
-
-   for (i = 0; i < 3; i++)
-     {
-        c_height = (i == 0) ? height : height / 2;
-
-        for (j = 0; j < c_height; j++)
-          {
-             memcpy(d, s, s_pitches[i]);
-             s += s_pitches[i];
-             d += d_pitches[i];
-          }
-     }
-}
-
-static void
-_copy_image_NV12(unsigned char *s, uint *s_pitches, unsigned char *d, uint *d_pitches, int height)
-{
-   int i, j, c_height;
-
-   for (i = 0; i < 2; i++)
-     {
-        c_height = (i == 0) ? height : height / 2;
-
-        for (j = 0; j < c_height; j++)
-          {
-             memcpy(d, s, s_pitches[i]);
-             s += s_pitches[i];
-             d += d_pitches[i];
-          }
-     }
-}
-
 Eina_Bool
 e_devmgr_buffer_copy(E_Devmgr_Buf *srcbuf, E_Devmgr_Buf *dstbuf)
 {
+   int i, j, c_height;
+   unsigned char *s, *d;
+
    switch (srcbuf->drmfmt)
      {
+      case DRM_FORMAT_ARGB8888:
+      case DRM_FORMAT_XRGB8888:
       case DRM_FORMAT_YUV422:
       case DRM_FORMAT_YVU422:
-        _copy_image_YUV422((unsigned char*)srcbuf->ptrs[0], srcbuf->pitches,
-                           (unsigned char*)dstbuf->ptrs[0], dstbuf->pitches,
-                           srcbuf->height);
+        s = (unsigned char*)srcbuf->ptrs[0];
+        d = (unsigned char*)dstbuf->ptrs[0];
+        for (i = 0; i < srcbuf->height; i++)
+          {
+             memcpy(d, s, srcbuf->pitches[0]);
+             s += srcbuf->pitches[0];
+             d += dstbuf->pitches[0];
+          }
         break;
       case DRM_FORMAT_YUV420:
       case DRM_FORMAT_YVU420:
-        _copy_image_YUV420((unsigned char*)srcbuf->ptrs[0], srcbuf->pitches,
-                           (unsigned char*)dstbuf->ptrs[0], dstbuf->pitches,
-                           srcbuf->height);
+        for (i = 0; i < 3; i++)
+          {
+             s = (unsigned char*)srcbuf->ptrs[i] + srcbuf->offsets[i];
+             d = (unsigned char*)dstbuf->ptrs[i] + dstbuf->offsets[i];
+             c_height = (i == 0) ? srcbuf->height : srcbuf->height / 2;
+             for (j = 0; j < c_height; j++)
+               {
+                  memcpy(d, s, srcbuf->pitches[i]);
+                  s += srcbuf->pitches[i];
+                  d += dstbuf->pitches[i];
+               }
+          }
         break;
       case DRM_FORMAT_NV12:
       case DRM_FORMAT_NV21:
-        _copy_image_NV12((unsigned char*)srcbuf->ptrs[0], srcbuf->pitches,
-                         (unsigned char*)dstbuf->ptrs[0], dstbuf->pitches,
-                         srcbuf->height);
+        for (i = 0; i < 2; i++)
+          {
+             s = (unsigned char*)srcbuf->ptrs[i] + srcbuf->offsets[i];
+             d = (unsigned char*)dstbuf->ptrs[i] + dstbuf->offsets[i];
+             c_height = (i == 0) ? srcbuf->height : srcbuf->height / 2;
+             for (j = 0; j < c_height; j++)
+               {
+                  memcpy(d, s, srcbuf->pitches[i]);
+                  s += srcbuf->pitches[i];
+                  d += dstbuf->pitches[i];
+               }
+          }
         break;
       default:
         ERR("not implemented for %c%c%c%c", FOURCC_STR(srcbuf->drmfmt));
