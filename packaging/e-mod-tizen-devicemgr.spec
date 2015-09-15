@@ -34,6 +34,7 @@ BuildRequires: pkgconfig(pixman-1)
 BuildRequires: pkgconfig(wayland-server)
 BuildRequires: pkgconfig(screenshooter-server)
 BuildRequires: pkgconfig(tizen-extension-server)
+BuildRequires: pkgconfig(wayland-tbm-server)
 %endif
 
 %description

@@ -7,7 +7,7 @@ typedef struct _E_Devmgr_Cvt E_Devmgr_Cvt;
 
 typedef struct _E_Devmgr_CvtProp
 {
-    uint drmfmt;
+    uint tbmfmt;
 
     int width;
     int height;

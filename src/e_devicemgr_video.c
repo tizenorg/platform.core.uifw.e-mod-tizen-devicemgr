@@ -31,7 +31,7 @@ struct _E_Video
    struct wl_listener client_destroy_listener;
 
    /* input info */
-   uint drmfmt;
+   uint tbmfmt;
    Eina_List *input_buffer_list;
 
    /* plane info */
@@ -67,15 +67,14 @@ struct _E_Video
 
 static uint video_format_table[] =
 {
-   TIZEN_BUFFER_POOL_FORMAT_ARGB8888,
-   TIZEN_BUFFER_POOL_FORMAT_XRGB8888,
-   TIZEN_BUFFER_POOL_FORMAT_YUYV,
-   TIZEN_BUFFER_POOL_FORMAT_UYVY,
-   TIZEN_BUFFER_POOL_FORMAT_NV12,
-   TIZEN_BUFFER_POOL_FORMAT_NV21,
-   TIZEN_BUFFER_POOL_FORMAT_YUV420,
-   TIZEN_BUFFER_POOL_FORMAT_YVU420,
-   TIZEN_BUFFER_POOL_FORMAT_SN12
+   TBM_FORMAT_ARGB8888,
+   TBM_FORMAT_XRGB8888,
+   TBM_FORMAT_YUYV,
+   TBM_FORMAT_UYVY,
+   TBM_FORMAT_NV12,
+   TBM_FORMAT_NV21,
+   TBM_FORMAT_YUV420,
+   TBM_FORMAT_YVU420
 };
 
 #define NUM_VIDEO_FORMAT   (sizeof(video_format_table) / sizeof(video_format_table[0]))
@@ -210,8 +209,8 @@ _e_video_input_buffer_cb_destroy(E_Devmgr_Buf *mbuf, void *data)
    video->input_buffer_list = eina_list_remove(video->input_buffer_list, mbuf);
    video->fake_buffer_list = eina_list_remove(video->fake_buffer_list, mbuf);
 
-   if (mbuf->type == TYPE_TB)
-     VDB("wl_buffer@%d done", wl_resource_get_id(mbuf->b.tizen_buffer->drm_buffer->resource));
+   if (mbuf->type == TYPE_TBM)
+     VDB("wl_buffer@%d done", wl_resource_get_id(mbuf->comp_buffer->resource));
 
    /* if cvt exists, it means that input buffer is not a frame buffer. */
    if (video->cvt)
@@ -238,16 +237,17 @@ _e_video_input_buffer_cb_destroy(E_Devmgr_Buf *mbuf, void *data)
 }
 
 static E_Devmgr_Buf*
-_e_video_input_buffer_get(E_Video *video, Tizen_Buffer *tizen_buffer, Eina_Bool is_fb)
+_e_video_input_buffer_get(E_Video *video, E_Comp_Wl_Buffer *comp_buffer, Eina_Bool is_fb, Eina_Bool fake)
 {
    E_Devmgr_Buf *mbuf;
 
    if (is_fb)
-     mbuf = e_devmgr_buffer_create_fb(tizen_buffer, EINA_FALSE);
+     mbuf = e_devmgr_buffer_create_fb(comp_buffer->resource, EINA_FALSE);
    else
-     mbuf = e_devmgr_buffer_create(tizen_buffer, EINA_FALSE);
-
+     mbuf = e_devmgr_buffer_create(comp_buffer->resource, EINA_FALSE);
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
+
+   mbuf->comp_buffer = comp_buffer;
 
    video->input_buffer_list = eina_list_append(video->input_buffer_list, mbuf);
    e_devmgr_buffer_free_func_add(mbuf, _e_video_input_buffer_cb_destroy, video);
@@ -256,34 +256,33 @@ _e_video_input_buffer_get(E_Video *video, Tizen_Buffer *tizen_buffer, Eina_Bool 
 }
 
 static void
-_e_video_input_buffer_valid(E_Video *video, Tizen_Buffer *tizen_buffer)
+_e_video_input_buffer_valid(E_Video *video, E_Comp_Wl_Buffer *comp_buffer)
 {
    E_Devmgr_Buf *mbuf;
    Eina_List *l;
 
    EINA_LIST_FOREACH(video->input_buffer_list, l, mbuf)
      {
-        if (mbuf->type != TYPE_TB) continue;
-        if (mbuf->b.tizen_buffer == tizen_buffer)
+        tbm_surface_h tbm_surf;
+        tbm_bo bo;
+        uint32_t size = 0, offset = 0, pitch = 0;
+
+        if (mbuf->type != TYPE_TBM) continue;
+        if (mbuf->b.tbm_resource == comp_buffer->resource)
           {
-             WRN("got wl_buffer@%d twice", wl_resource_get_id(tizen_buffer->drm_buffer->resource));
+             WRN("got wl_buffer@%d twice", wl_resource_get_id(comp_buffer->resource));
              return;
           }
-     }
 
-   EINA_LIST_FOREACH(video->input_buffer_list, l, mbuf)
-     {
-        E_Drm_Buffer *temp;
+        tbm_surf = wayland_tbm_server_get_surface(e_comp->wl_comp_data->tbm.server, comp_buffer->resource);
+        bo = tbm_surface_internal_get_bo(tbm_surf, 0);
+        tbm_surface_internal_get_plane_data(tbm_surf, 0, &size, &offset, &pitch);
 
-        if (mbuf->type != TYPE_TB) continue;
-
-        temp = mbuf->b.tizen_buffer->drm_buffer;
-        if (temp->name[0] == tizen_buffer->drm_buffer->name[0] &&
-            temp->offset[0] == tizen_buffer->drm_buffer->offset[0])
+        if (mbuf->names[0] == tbm_bo_export(bo) && mbuf->offsets[0] == offset)
           {
              WRN("tearing: wl_buffer@%d, wl_buffer@%d are same",
-                 wl_resource_get_id(temp->resource),
-                 wl_resource_get_id(tizen_buffer->drm_buffer->resource));
+                 wl_resource_get_id(mbuf->b.tbm_resource),
+                 wl_resource_get_id(comp_buffer->resource));
              return;
           }
      }
@@ -536,22 +535,25 @@ _e_video_geometry_cal_viewport(E_Video *video)
    E_Comp_Wl_Subsurf_Data *sdata;
    int x1, y1, x2, y2;
    int tx1, ty1, tx2, ty2;
-   E_Comp_Wl_Buffer *buffer;
-   E_Drm_Buffer *drm_buffer;
+   E_Comp_Wl_Buffer *comp_buffer;
+   tbm_surface_h tbm_surf;
+   uint32_t size = 0, offset = 0, pitch = 0;
 
-   buffer = e_pixmap_resource_get(video->ec->pixmap);
-   EINA_SAFETY_ON_NULL_RETURN_VAL(buffer, EINA_FALSE);
+   comp_buffer = e_pixmap_resource_get(video->ec->pixmap);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(comp_buffer, EINA_FALSE);
 
-   drm_buffer = e_drm_buffer_get(buffer->resource);
-   EINA_SAFETY_ON_NULL_RETURN_VAL(drm_buffer, EINA_FALSE);
+   tbm_surf = wayland_tbm_server_get_surface(e_comp->wl_comp_data->tbm.server, comp_buffer->resource);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(tbm_surf, EINA_FALSE);
+
+   tbm_surface_internal_get_plane_data(tbm_surf, 0, &size, &offset, &pitch);
 
    /* input geometry */
-   if (IS_RGB(video->drmfmt))
-      video->geo.input_w = drm_buffer->stride[0] / 4;
+   if (IS_RGB(video->tbmfmt))
+      video->geo.input_w = pitch / 4;
    else
-      video->geo.input_w = drm_buffer->stride[0];
+      video->geo.input_w = pitch;
 
-   video->geo.input_h = drm_buffer->height;
+   video->geo.input_h = tbm_surface_get_height(tbm_surf);
 
    if (vp->buffer.src_width == wl_fixed_from_int(-1))
      {
@@ -685,21 +687,16 @@ _e_video_geometry_cal_map(E_Video *video)
 static void
 _e_video_format_info_get(E_Video *video)
 {
-   E_Comp_Wl_Buffer *buffer;
-   E_Drm_Buffer *drm_buffer;
+   E_Comp_Wl_Buffer *comp_buffer;
+   tbm_surface_h tbm_surf;
 
-   buffer = e_pixmap_resource_get(video->ec->pixmap);
-   EINA_SAFETY_ON_NULL_RETURN(buffer);
+   comp_buffer = e_pixmap_resource_get(video->ec->pixmap);
+   EINA_SAFETY_ON_NULL_RETURN(comp_buffer);
 
-   drm_buffer = e_drm_buffer_get(buffer->resource);
-   EINA_SAFETY_ON_NULL_RETURN(drm_buffer);
+   tbm_surf = wayland_tbm_server_get_surface(e_comp->wl_comp_data->tbm.server, comp_buffer->resource);
+   EINA_SAFETY_ON_NULL_RETURN(tbm_surf);
 
-   if (drm_buffer->format == TIZEN_BUFFER_POOL_FORMAT_ST12)
-     video->drmfmt = DRM_FORMAT_NV12MT;
-   else if (drm_buffer->format == TIZEN_BUFFER_POOL_FORMAT_SN12)
-     video->drmfmt = DRM_FORMAT_NV12;
-   else
-     video->drmfmt = drm_buffer->format;
+   video->tbmfmt = tbm_surface_get_format(tbm_surf);
 }
 
 static E_Video_Fb*
@@ -712,11 +709,8 @@ _e_video_frame_buffer_create(E_Video *video, E_Devmgr_Buf *mbuf, Eina_Rectangle 
    vfb->video = video;
    vfb->visible_r = *visible;
 
-   if (mbuf->type == TYPE_TB)
-     {
-        E_Comp_Wl_Buffer *buffer = mbuf->b.tizen_buffer->buffer;
-        e_comp_wl_buffer_reference(&vfb->buffer_ref, buffer);
-     }
+   if (mbuf->type == TYPE_TBM)
+     e_comp_wl_buffer_reference(&vfb->buffer_ref, mbuf->comp_buffer);
 
    return vfb;
 }
@@ -857,7 +851,6 @@ _e_video_cvt_callback(E_Devmgr_Cvt *cvt,
    e_devmgr_buffer_unref(input_buffer);
 #if 0
    static int i;
-   e_devmgr_buffer_dump(input_buffer, "in", i, 0);
    e_devmgr_buffer_dump(cvt_buffer, "out", i++, 0);
 #endif
 }
@@ -871,13 +864,13 @@ _e_video_cvt_configure(E_Video *video, E_Devmgr_Buf *cvt_buffer)
      return EINA_FALSE;
 
    CLEAR(src);
-   src.drmfmt = video->drmfmt;
+   src.tbmfmt = video->tbmfmt;
    src.width = video->geo.input_w;
    src.height = video->geo.input_h;
    src.crop = video->geo.input_r;
 
    CLEAR(dst);
-   dst.drmfmt = DRM_FORMAT_XRGB8888;
+   dst.tbmfmt = TBM_FORMAT_XRGB8888;
    dst.width = cvt_buffer->pitches[0] >> 2;
    dst.height = cvt_buffer->height;
    dst.crop.w = video->geo.output_r.w;
@@ -1089,9 +1082,7 @@ _e_video_destroy(E_Video *video)
 static void
 _e_video_render(E_Video *video, Eina_Bool fake)
 {
-   E_Comp_Wl_Buffer *buffer;
-   E_Drm_Buffer *drm_buffer;
-   Tizen_Buffer *tizen_buffer;
+   E_Comp_Wl_Buffer *comp_buffer;
    E_Devmgr_Buf *cvt_buffer = NULL;
    E_Devmgr_Buf *input_buffer = NULL;
 
@@ -1103,24 +1094,10 @@ _e_video_render(E_Video *video, Eina_Bool fake)
 
    _e_video_geometry_cal_map(video);
 
-   buffer = e_pixmap_resource_get(video->ec->pixmap);
-   EINA_SAFETY_ON_NULL_RETURN(buffer);
-   EINA_SAFETY_ON_FALSE_RETURN(buffer->type == E_COMP_WL_BUFFER_TYPE_DRM);
-
-   drm_buffer = e_drm_buffer_get(buffer->resource);
-   EINA_SAFETY_ON_NULL_RETURN(drm_buffer);
-
-   tizen_buffer = drm_buffer->driver_buffer;
-   EINA_SAFETY_ON_NULL_RETURN(tizen_buffer);
-
-   /* set tizen_buffer->buffer */
-   if (!tizen_buffer->buffer)
-     tizen_buffer->buffer = buffer;
-   else if (tizen_buffer->buffer != buffer)
-     {
-        VER("error: buffer mismatch");
-        return;
-     }
+   comp_buffer = e_pixmap_resource_get(video->ec->pixmap);
+   EINA_SAFETY_ON_NULL_RETURN(comp_buffer);
+   EINA_SAFETY_ON_NULL_RETURN(comp_buffer->resource);
+   EINA_SAFETY_ON_FALSE_RETURN(comp_buffer->type == E_COMP_WL_BUFFER_TYPE_TBM);
 
    if (fake)
      {
@@ -1130,23 +1107,16 @@ _e_video_render(E_Video *video, Eina_Bool fake)
          * The fake buffer which surface has currnetly will be rendered by
          * _e_video_cb_ec_buffer_change.
          */
-        if (!last || (last && last->type == TYPE_BO && last->b.tizen_buffer != tizen_buffer))
+        if (!last || (last && last->type == TYPE_BO && last->comp_buffer != comp_buffer))
           return;
      }
    else
-     _e_video_input_buffer_valid(video, tizen_buffer);
-
-   VDB("video buffer: %c%c%c%c %dx%d (%d,%d,%d) (%d,%d,%d) (%d,%d,%d): wl_buffer@%d fake(%d)",
-       FOURCC_STR(drm_buffer->format), drm_buffer->width, drm_buffer->height,
-       drm_buffer->name[0], drm_buffer->name[1], drm_buffer->name[2],
-       drm_buffer->stride[0], drm_buffer->stride[1], drm_buffer->stride[2],
-       drm_buffer->offset[0], drm_buffer->offset[1], drm_buffer->offset[2],
-       wl_resource_get_id(drm_buffer->resource), fake);
+     _e_video_input_buffer_valid(video, comp_buffer);
 
    /* 2. In case a buffer is RGB and the size of input/output *WHICH CLIENT SENT*
     * is same, we don't need to convert video. Otherwise, we should need a converter.
     */
-   if (!IS_RGB(video->drmfmt) ||
+   if (!IS_RGB(video->tbmfmt) ||
        video->geo.input_r.w != video->geo.output_r.w ||
        video->geo.input_r.h != video->geo.output_r.h ||
        video->geo.hflip || video->geo.vflip || video->geo.degree)
@@ -1162,7 +1132,7 @@ _e_video_render(E_Video *video, Eina_Bool fake)
 
    if (video->cvt)
      {
-        input_buffer = _e_video_input_buffer_get(video, tizen_buffer, EINA_FALSE);
+        input_buffer = _e_video_input_buffer_get(video, comp_buffer, EINA_FALSE, fake);
         EINA_SAFETY_ON_NULL_GOTO(input_buffer, render_fail);
 
         cvt_buffer = _e_video_cvt_buffer_get(video, video->geo.output_r.w, video->geo.output_r.h);
@@ -1185,6 +1155,10 @@ _e_video_render(E_Video *video, Eina_Bool fake)
              if (!_e_video_cvt_configure(video, cvt_buffer))
                goto render_fail;
           }
+#if 0
+        static int i;
+        e_devmgr_buffer_dump(input_buffer, "in", i++, 0);
+#endif
 
         if (!e_devmgr_cvt_convert(video->cvt, input_buffer, cvt_buffer))
           goto render_fail;
@@ -1197,7 +1171,7 @@ _e_video_render(E_Video *video, Eina_Bool fake)
      }
    else
      {
-        input_buffer = _e_video_input_buffer_get(video, tizen_buffer, EINA_TRUE);
+        input_buffer = _e_video_input_buffer_get(video, comp_buffer, EINA_TRUE, fake);
         EINA_SAFETY_ON_NULL_GOTO(input_buffer, render_fail);
 
         _e_video_buffer_show(video, input_buffer, &video->geo.input_r, fake);
@@ -1225,7 +1199,7 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
 {
    E_Client *ec;
    E_Event_Client *ev = event;
-   E_Comp_Wl_Buffer *buffer;
+   E_Comp_Wl_Buffer *comp_buffer;
    E_Video *video;
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(ev, ECORE_CALLBACK_PASS_ON);
@@ -1234,15 +1208,15 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
 
    if (!ec || !ec->pixmap) return ECORE_CALLBACK_PASS_ON;
 
-   buffer = e_pixmap_resource_get(ec->pixmap);
+   comp_buffer = e_pixmap_resource_get(ec->pixmap);
 
    /* buffer can be NULL when camera/video's mode changed. Do nothing and
     * keep previous frame in this case.
     */
-   if (!buffer) return ECORE_CALLBACK_PASS_ON;
+   if (!comp_buffer) return ECORE_CALLBACK_PASS_ON;
 
    /* not interested in other buffer type */
-   if (buffer->type != E_COMP_WL_BUFFER_TYPE_DRM)
+   if (comp_buffer->type != E_COMP_WL_BUFFER_TYPE_TBM)
       return ECORE_CALLBACK_PASS_ON;
 
    DBG("======================================");
@@ -1271,84 +1245,24 @@ _e_video_cb_ec_remove(void *data, int type, void *event)
    return ECORE_CALLBACK_PASS_ON;
 }
 
+static void
+_e_devicemgr_video_cb_bind(struct wl_client *client, void *data, uint32_t version, uint32_t id)
+{
+   struct wl_resource *res;
+   int i;
+
+   if (!(res = wl_resource_create(client, &tizen_video_interface, MIN(version, 1), id)))
+     {
+        ERR("Could not create tizen_video_interface resource: %m");
+        wl_client_post_no_memory(client);
+        return;
+     }
+
+   for (i = 0; i < NUM_VIDEO_FORMAT; i++)
+     tizen_video_send_format(res, video_format_table[i]);
+}
+
 static Eina_List *video_hdlrs;
-
-static uint
-_e_video_buffer_pool_cb_get_capbilities(void *user_data)
-{
-   return TIZEN_BUFFER_POOL_CAPABILITY_VIDEO;
-}
-
-static uint*
-_e_video_buffer_pool_cb_get_formats(void *user_data, int *format_cnt)
-{
-   uint *fmts;
-
-   EINA_SAFETY_ON_NULL_RETURN_VAL(format_cnt, NULL);
-
-   *format_cnt = 0;
-
-   fmts = malloc(NUM_VIDEO_FORMAT * sizeof(uint));
-   EINA_SAFETY_ON_NULL_RETURN_VAL(fmts, NULL);
-
-   memcpy(fmts, video_format_table, NUM_VIDEO_FORMAT * sizeof(uint));
-
-   *format_cnt = NUM_VIDEO_FORMAT;
-
-   return fmts;
-}
-
-static void
-_e_video_buffer_pool_cb_reference_buffer(void *user_data, E_Drm_Buffer *drm_buffer)
-{
-   Tizen_Buffer *tizen_buffer = NULL;
-   int i;
-
-   tizen_buffer = calloc(1, sizeof *tizen_buffer);
-   EINA_SAFETY_ON_NULL_RETURN(tizen_buffer);
-
-   tizen_buffer->drm_buffer = drm_buffer;
-   drm_buffer->driver_buffer = tizen_buffer;
-
-   for (i = 0; i < 3; i++)
-     if (drm_buffer->name[i] > 0)
-       {
-         tizen_buffer->bo[i] = tbm_bo_import(e_devmgr_bufmgr, drm_buffer->name[i]);
-         tizen_buffer->name[i] = drm_buffer->name[i];
-       }
-
-   DBG("wl_buffer@%d (%d,%d,%d) create",
-       wl_resource_get_id(drm_buffer->resource),
-       drm_buffer->name[0], drm_buffer->name[1], drm_buffer->name[2]);
-}
-
-static void
-_e_video_buffer_pool_cb_release_buffer(void *user_data, E_Drm_Buffer *drm_buffer)
-{
-   Tizen_Buffer *tizen_buffer = drm_buffer->driver_buffer;
-   int i;
-
-   if (!tizen_buffer) return;
-
-   for (i = 0; i < 3; i++)
-     if (tizen_buffer->bo[i])
-       tbm_bo_unref(tizen_buffer->bo[i]);
-
-   DBG("wl_buffer@%d (%d,%d,%d) destroy",
-       wl_resource_get_id(drm_buffer->resource),
-       drm_buffer->name[0], drm_buffer->name[1], drm_buffer->name[2]);
-
-   free(tizen_buffer);
-   drm_buffer->driver_buffer = NULL;
-}
-
-static E_Drm_Buffer_Callbacks _e_video_buffer_pool_callbacks =
-{
-   _e_video_buffer_pool_cb_get_capbilities,
-   _e_video_buffer_pool_cb_get_formats,
-   _e_video_buffer_pool_cb_reference_buffer,
-   _e_video_buffer_pool_cb_release_buffer
-};
 
 int
 e_devicemgr_video_init(void)
@@ -1359,9 +1273,11 @@ e_devicemgr_video_init(void)
    if (!(cdata = e_comp->wl_comp_data)) return 0;
    if (!cdata->wl.disp) return 0;
 
-   if (!e_drm_buffer_pool_init(cdata->wl.disp, &_e_video_buffer_pool_callbacks, NULL))
+   /* try to add tizen_screenshooter to wayland globals */
+   if (!wl_global_create(cdata->wl.disp, &tizen_video_interface, 1,
+                         NULL, _e_devicemgr_video_cb_bind))
      {
-        ERR("Could not init e_drm_buffer_pool_init");
+        ERR("Could not add tizen_screenshooter to wayland globals");
         return 0;
      }
 

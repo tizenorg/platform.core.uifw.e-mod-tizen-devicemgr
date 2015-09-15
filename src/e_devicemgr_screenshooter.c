@@ -46,7 +46,7 @@ typedef struct _E_Mirror
 
 typedef struct _E_Mirror_Buffer
 {
-   /* either shm_buffer or drm_buffer */
+   /* either shm_buffer or tbm_buffer */
    struct wl_resource *resource;
 
    E_Mirror *mirror;
@@ -60,10 +60,10 @@ typedef struct _E_Mirror_Buffer
 
 static uint mirror_format_table[] =
 {
-   TIZEN_BUFFER_POOL_FORMAT_ARGB8888,
-   TIZEN_BUFFER_POOL_FORMAT_XRGB8888,
-   TIZEN_BUFFER_POOL_FORMAT_NV12,
-   TIZEN_BUFFER_POOL_FORMAT_NV21,
+   TBM_FORMAT_ARGB8888,
+   TBM_FORMAT_XRGB8888,
+   TBM_FORMAT_NV12,
+   TBM_FORMAT_NV21,
 };
 
 #define NUM_MIRROR_FORMAT   (sizeof(mirror_format_table) / sizeof(mirror_format_table[0]))
@@ -186,7 +186,8 @@ _e_tz_screenmirror_watch_vblank(E_Mirror *mirror)
 static Eina_Bool
 _e_tz_screenmirror_buffer_check(struct wl_resource *resource)
 {
-   if (wl_shm_buffer_get(resource) || e_drm_buffer_get(resource))
+   if (wl_shm_buffer_get(resource) ||
+       wayland_tbm_server_get_surface(e_comp->wl_comp_data->tbm.server, resource))
      return EINA_TRUE;
 
    ERR("unrecognized buffer");
@@ -252,28 +253,21 @@ _e_tz_screenmirror_dst_buffer_get(E_Mirror_Buffer *buffer)
         mbuf = e_devmgr_buffer_create_shm(shm_buffer);
 
         DBG("capture buffer: %c%c%c%c %dx%d (%d)",
-            FOURCC_STR(mbuf->drmfmt), mbuf->width, mbuf->height, mbuf->pitches[0]);
+            FOURCC_STR(mbuf->tbmfmt), mbuf->width, mbuf->height, mbuf->pitches[0]);
      }
-   else if (e_drm_buffer_get(buffer->resource))
+   else if (wayland_tbm_server_get_surface(e_comp->wl_comp_data->tbm.server, buffer->resource))
      {
-        E_Drm_Buffer *drm_buffer = e_drm_buffer_get(buffer->resource);
-        Tizen_Buffer *tizen_buffer = drm_buffer->driver_buffer;
-
-        EINA_SAFETY_ON_NULL_RETURN_VAL(tizen_buffer, NULL);
-
         EINA_LIST_FOREACH(mirror->dst_buffer_list, l, mbuf)
-          if (mbuf->b.tizen_buffer == tizen_buffer)
+          if (mbuf->b.tbm_resource == buffer->resource)
             return mbuf;
 
-        mbuf = e_devmgr_buffer_create(tizen_buffer, EINA_FALSE);
+        mbuf = e_devmgr_buffer_create(buffer->resource, EINA_FALSE);
 
-        DBG("capture buffer: %c%c%c%c (%d,%d,%d) %dx%d (%d,%d,%d) (%d,%d,%d)",
-            FOURCC_STR(drm_buffer->format),
-            drm_buffer->name[0], drm_buffer->name[1], drm_buffer->name[2],
-            drm_buffer->width, drm_buffer->height,
-            drm_buffer->stride[0], drm_buffer->stride[1], drm_buffer->stride[2],
-            drm_buffer->offset[0], drm_buffer->offset[1], drm_buffer->offset[2]);
-
+        DBG("capture buffer: %c%c%c%c %dx%d (%d,%d,%d) (%d,%d,%d)",
+            FOURCC_STR(mbuf->tbmfmt),
+            mbuf->width, mbuf->height,
+            mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
+            mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2]);
      }
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
@@ -292,7 +286,7 @@ _e_tz_screenmirror_cvt_callback(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_B
    Eina_List *l;
 
    EINA_LIST_FOREACH(mirror->buffer_queue, l, buffer)
-     if (dst->b.tizen_buffer->drm_buffer->resource == buffer->resource)
+     if (dst->b.tbm_resource == buffer->resource)
        {
           _e_tz_screenmirror_buffer_dequeue(buffer);
           break;
@@ -328,14 +322,14 @@ _e_tz_screenmirror_cvt_create(E_Mirror *mirror, E_Devmgr_Buf *src, E_Devmgr_Buf 
 
    CLEAR(sprop);
    CLEAR(dprop);
-   sprop.drmfmt = src->drmfmt;
+   sprop.tbmfmt = src->tbmfmt;
    sprop.width = src->width;
    sprop.height = src->height;
    sprop.crop.x = sprop.crop.y = 0;
    sprop.crop.w = src->width;
    sprop.crop.h = src->height;
 
-   dprop.drmfmt = dst->drmfmt;
+   dprop.tbmfmt = dst->tbmfmt;
    dprop.width = dst->width;
    dprop.height = dst->height;
    if (mirror->stretch == TIZEN_SCREENMIRROR_STRETCH_KEEP_RATIO)
@@ -583,7 +577,7 @@ _e_tz_screenmirror_vblank_handler(uint sequence, uint tv_sec, uint tv_usec, void
         _e_tz_screenmirror_shm_dump(buffer);
         _e_tz_screenmirror_buffer_dequeue(buffer);
      }
-   else if (e_drm_buffer_get(buffer->resource))
+   else if (wayland_tbm_server_get_surface(e_comp->wl_comp_data->tbm.server, buffer->resource))
      {
         /* If _e_tz_screenmirror_drm_dump is failed, we dequeue buffer at now.
          * Otherwise, _e_tz_screenmirror_buffer_dequeue will be called in cvt callback
@@ -856,6 +850,7 @@ _e_tz_screenshooter_cb_bind(struct wl_client *client, void *data, uint32_t versi
 {
    E_Comp_Data *cdata;
    struct wl_resource *res;
+   int i;
 
    if (!(cdata = data))
      {
@@ -871,6 +866,9 @@ _e_tz_screenshooter_cb_bind(struct wl_client *client, void *data, uint32_t versi
      }
 
    wl_resource_set_implementation(res, &_e_tz_screenshooter_interface, cdata, NULL);
+
+   for (i = 0; i < NUM_MIRROR_FORMAT; i++)
+     tizen_screenshooter_send_format(res, mirror_format_table[i]);
 }
 
 static void
@@ -940,75 +938,6 @@ _e_screenshooter_cb_bind(struct wl_client *client, void *data, uint32_t version,
    wl_resource_set_implementation(res, &_e_screenshooter_interface, cdata, NULL);
 }
 
-static uint
-_e_screenmirror_buffer_get_capbilities(void *user_data)
-{
-   return TIZEN_BUFFER_POOL_CAPABILITY_SCREENMIRROR;
-}
-
-static uint*
-_e_screenmirror_buffer_get_formats(void *user_data, int *format_cnt)
-{
-   uint *fmts;
-
-   EINA_SAFETY_ON_NULL_RETURN_VAL(format_cnt, NULL);
-
-   *format_cnt = 0;
-
-   fmts = malloc(NUM_MIRROR_FORMAT * sizeof(uint));
-   EINA_SAFETY_ON_NULL_RETURN_VAL(fmts, NULL);
-
-   memcpy(fmts, mirror_format_table, NUM_MIRROR_FORMAT * sizeof(uint));
-
-   *format_cnt = NUM_MIRROR_FORMAT;
-
-   return fmts;
-}
-
-static void
-_e_screenmirror_buffer_reference_buffer(void *user_data, E_Drm_Buffer *drm_buffer)
-{
-   Tizen_Buffer *tizen_buffer = NULL;
-   int i;
-
-   tizen_buffer = calloc(1, sizeof *tizen_buffer);
-   EINA_SAFETY_ON_NULL_RETURN(tizen_buffer);
-
-   tizen_buffer->drm_buffer = drm_buffer;
-   drm_buffer->driver_buffer = tizen_buffer;
-
-   for (i = 0; i < 3; i++)
-     if (drm_buffer->name[i] > 0)
-       {
-         tizen_buffer->bo[i] = tbm_bo_import(e_devmgr_bufmgr, drm_buffer->name[i]);
-         tizen_buffer->name[i] = drm_buffer->name[i];
-       }
-}
-
-static void
-_e_screenmirror_buffer_release_buffer(void *user_data, E_Drm_Buffer *drm_buffer)
-{
-   Tizen_Buffer *tizen_buffer = drm_buffer->driver_buffer;
-   int i;
-
-   if (!tizen_buffer) return;
-
-   for (i = 0; i < 3; i++)
-     if (tizen_buffer->bo[i])
-       tbm_bo_unref(tizen_buffer->bo[i]);
-
-   free(tizen_buffer);
-   drm_buffer->driver_buffer = NULL;
-}
-
-static E_Drm_Buffer_Callbacks _e_screenmirror_buffer_callbacks =
-{
-   _e_screenmirror_buffer_get_capbilities,
-   _e_screenmirror_buffer_get_formats,
-   _e_screenmirror_buffer_reference_buffer,
-   _e_screenmirror_buffer_release_buffer
-};
-
 int
 e_devicemgr_screenshooter_init(void)
 {
@@ -1031,12 +960,6 @@ e_devicemgr_screenshooter_init(void)
                          cdata, _e_tz_screenshooter_cb_bind))
      {
         ERR("Could not add tizen_screenshooter to wayland globals");
-        return 0;
-     }
-
-   if (!e_drm_buffer_pool_init(cdata->wl.disp, &_e_screenmirror_buffer_callbacks, NULL))
-     {
-        ERR("Could not init e_drm_buffer_pool_init");
         return 0;
      }
 

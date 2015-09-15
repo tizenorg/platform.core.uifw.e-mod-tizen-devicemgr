@@ -5,7 +5,6 @@
 #include <drm_fourcc.h>
 #include <Ecore_Drm.h>
 #include <exynos_drm.h>
-#include <e_drm_buffer_pool.h>
 
 #include "e_mod_main.h"
 #include "e_devicemgr_privates.h"
@@ -117,7 +116,7 @@ fill_config(E_Devmgr_CvtType type, E_Devmgr_Cvt_Prop *prop, struct drm_exynos_ip
      config->flip |= EXYNOS_DRM_FLIP_VERTICAL;
 
    config->degree = drm_degree(prop->degree);
-   config->fmt = prop->drmfmt;
+   config->fmt = DRM_FORMAT(prop->tbmfmt);
    config->sz.hsize = (__u32)prop->width;
    config->sz.vsize = (__u32)prop->height;
    config->pos.x = (__u32)prop->crop.x;
@@ -258,14 +257,13 @@ _e_devmgr_cvt_queue(E_Devmgr_Cvt *cvt, E_Devmgr_CvtBuf *cbuf)
    else
      cvt->dst_bufs = eina_list_append(cvt->dst_bufs, cbuf);
 
-   if (cbuf->mbuf->type == TYPE_TB && cbuf->mbuf->b.tizen_buffer->buffer)
+   if (cbuf->mbuf->type == TYPE_TBM && cbuf->mbuf->comp_buffer)
      {
-        E_Comp_Wl_Buffer *buffer = cbuf->mbuf->b.tizen_buffer->buffer;
-        e_comp_wl_buffer_reference(&cbuf->buffer_ref, buffer);
+        e_comp_wl_buffer_reference(&cbuf->buffer_ref, cbuf->mbuf->comp_buffer);
 
         cbuf->cvt = cvt;
         cbuf->buffer_destroy_listener.notify = _e_devmgr_cvt_cb_tb_destroy;
-        wl_signal_add(&buffer->destroy_signal, &cbuf->buffer_destroy_listener);
+        wl_signal_add(&cbuf->mbuf->comp_buffer->destroy_signal, &cbuf->buffer_destroy_listener);
      }
 
    DBG("queue: cvt(%p), cbuf(%p), type(%d), index(%d) mbuf(%p) converting(%d)",
@@ -324,7 +322,7 @@ _e_devmgr_cvt_dequeued(E_Devmgr_Cvt *cvt, E_Devmgr_CvtType type, int index)
    else
      cvt->dst_bufs = eina_list_remove(cvt->dst_bufs, cbuf);
 
-   if (cbuf->mbuf->type == TYPE_TB)
+   if (cbuf->mbuf->type == TYPE_TBM)
      {
         if (cbuf->buffer_destroy_listener.notify)
           {
@@ -484,7 +482,7 @@ e_devmgr_cvt_ensure_size(E_Devmgr_Cvt_Prop *src, E_Devmgr_Cvt_Prop *dst)
 {
    if (src)
      {
-        int type = e_devmgr_buffer_color_type(src->drmfmt);
+        int type = e_devmgr_buffer_color_type(src->tbmfmt);
         EINA_SAFETY_ON_FALSE_RETURN_VAL(src->width >= 16, EINA_FALSE);
         EINA_SAFETY_ON_FALSE_RETURN_VAL(src->height >= 8, EINA_FALSE);
         EINA_SAFETY_ON_FALSE_RETURN_VAL(src->crop.w >= 16, EINA_FALSE);
@@ -528,7 +526,7 @@ e_devmgr_cvt_ensure_size(E_Devmgr_Cvt_Prop *src, E_Devmgr_Cvt_Prop *dst)
 
    if (dst)
      {
-        int type = e_devmgr_buffer_color_type(dst->drmfmt);
+        int type = e_devmgr_buffer_color_type(dst->tbmfmt);
         EINA_SAFETY_ON_FALSE_RETURN_VAL(dst->width >= 16, EINA_FALSE);
         EINA_SAFETY_ON_FALSE_RETURN_VAL(dst->height >= 8, EINA_FALSE);
         EINA_SAFETY_ON_FALSE_RETURN_VAL(dst->crop.w >= 16, EINA_FALSE);
@@ -650,14 +648,14 @@ e_devmgr_cvt_property_set(E_Devmgr_Cvt *cvt, E_Devmgr_Cvt_Prop *src, E_Devmgr_Cv
    EINA_SAFETY_ON_NULL_RETURN_VAL(dst, EINA_FALSE);
 
    DBG("set: cvt(%p) src('%c%c%c%c', '%c%c%c%c', %dx%d, %d,%d %dx%d, %d, %d&%d, %d, %d)",
-       cvt, FOURCC_STR(src->drmfmt), FOURCC_STR(src->drmfmt),
+       cvt, FOURCC_STR(src->tbmfmt), FOURCC_STR(src->tbmfmt),
        src->width, src->height,
        src->crop.x, src->crop.y, src->crop.w, src->crop.h,
        src->degree, src->hflip, src->vflip,
        src->secure, src->csc_range);
 
    DBG("set: cvt(%p) dst('%c%c%c%c', '%c%c%c%c',%dx%d, %d,%d %dx%d, %d, %d&%d, %d, %d)",
-       cvt, FOURCC_STR(dst->drmfmt), FOURCC_STR(dst->drmfmt),
+       cvt, FOURCC_STR(dst->tbmfmt), FOURCC_STR(dst->tbmfmt),
        dst->width, dst->height,
        dst->crop.x, dst->crop.y, dst->crop.w, dst->crop.h,
        dst->degree, dst->hflip, dst->vflip,
@@ -715,7 +713,7 @@ e_devmgr_cvt_convert(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst)
    dst_cbuf = calloc(1, sizeof(E_Devmgr_CvtBuf));
    EINA_SAFETY_ON_FALSE_GOTO(dst_cbuf != NULL, fail);
 
-   if (IS_RGB(src->drmfmt))
+   if (IS_RGB(src->tbmfmt))
      buf_width = src->pitches[0] / 4;
    else
      buf_width = src->pitches[0];
@@ -731,10 +729,10 @@ e_devmgr_cvt_convert(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst)
      {
         E_Devmgr_Buf *tmp;
 
-        tmp = e_devmgr_buffer_alloc(src->width, src->height, src->drmfmt, 0);
+        tmp = e_devmgr_buffer_alloc(src->width, src->height, src->tbmfmt, 0);
         EINA_SAFETY_ON_FALSE_GOTO(tmp != NULL, fail);
 
-        if (IS_RGB(src->drmfmt))
+        if (IS_RGB(src->tbmfmt))
           e_devmgr_buffer_convert(src, tmp,
                                   0, 0, src->width, src->height,
                                   0, 0, src->width, src->height,

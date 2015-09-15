@@ -74,7 +74,7 @@ fi
 AM_CONDITIONAL(HAVE_WAYLAND_ONLY, [test "x${have_wayland_only}" = xyes])
 
 if test "x${have_wayland_only}" = "xyes"; then
-	PKG_CHECK_MODULES(ENLIGHTENMENT, [enlightenment, dlog, wayland-server, screenshooter-server, tizen-extension-server, libtbm, libdrm, libdrm_exynos, libpng, pixman-1])
+	PKG_CHECK_MODULES(ENLIGHTENMENT, [enlightenment, dlog, wayland-server, screenshooter-server, tizen-extension-server, wayland-tbm-server, libtbm, libdrm, libdrm_exynos, libpng, pixman-1])
 else
 	PKG_CHECK_MODULES(ENLIGHTENMENT, [enlightenment, dlog, x11, utilX])
 	ENLIGHTENMENT_CFLAGS="${ENLIGHTENMENT_CFLAGS} -DNEED_X=1"

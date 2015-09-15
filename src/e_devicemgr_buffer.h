@@ -3,24 +3,15 @@
 
 #define E_COMP_WL
 #include <e.h>
-#include <e_drm_buffer_pool.h>
+#include <e_comp_wl_tbm.h>
+#include <wayland-tbm-server.h>
 #include <tizen-extension-server-protocol.h>
 #include "e_devicemgr_drm.h"
 #include "e_devicemgr_privates.h"
 
-typedef struct _Tizen_Buffer
-{
-   E_Drm_Buffer *drm_buffer;
-   tbm_bo bo[3];
-   uint name[3];
-
-   /* will set when attached */
-   E_Comp_Wl_Buffer *buffer;
-} Tizen_Buffer;
-
 typedef enum _E_Devmgr_Buf_Type
 {
-   TYPE_TB,
+   TYPE_TBM,
    TYPE_BO,
    TYPE_SHM,
    TYPE_HND,
@@ -36,7 +27,7 @@ typedef enum
 
 typedef struct _E_Devmgr_Buf
 {
-   uint drmfmt;
+   uint tbmfmt;
 
    /* pitch contains the full buffer width.
     * width indicates the content area width.
@@ -47,19 +38,21 @@ typedef struct _E_Devmgr_Buf
    uint pitches[4];
    uint offsets[4];
 
-   /* user address */
-   void *ptrs[4];
+   void *ptrs[4];  /* user address */
+   int names[4];   /* flink_id */
 
    E_Devmgr_Buf_Type type;
    union {
       struct wl_shm_buffer *shm_buffer;
-      Tizen_Buffer *tizen_buffer;
+      struct wl_resource *tbm_resource;
       uint handle;
       tbm_bo bo[4];
    } b;
-   /* for tizen_buffer */
+
+   /* for tbm_buffer */
    struct wl_listener buffer_destroy_listener;
    Eina_Bool buffer_destroying;
+   E_Comp_Wl_Buffer *comp_buffer;
 
    Eina_List *convert_info;
    Eina_Bool showing;         /* now showing or now waiting to show. */
@@ -78,14 +71,13 @@ typedef struct _E_Devmgr_Buf
    uint put_time;
 } E_Devmgr_Buf;
 
-E_Devmgr_Buf_Color_Type e_devmgr_buffer_color_type (unsigned int drmfmt);
-int e_devmgr_buf_image_attr(uint drmfmt, int w, int h, uint *pitches, uint *lengths);
+E_Devmgr_Buf_Color_Type e_devmgr_buffer_color_type (unsigned int tbmfmt);
 
-E_Devmgr_Buf* _e_devmgr_buffer_create    (Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char *func);
-E_Devmgr_Buf* _e_devmgr_buffer_create_fb (Tizen_Buffer *tizen_buffer, Eina_Bool secure, const char *func);
+E_Devmgr_Buf* _e_devmgr_buffer_create    (struct wl_resource *tbm_resource, Eina_Bool secure, const char *func);
+E_Devmgr_Buf* _e_devmgr_buffer_create_fb (struct wl_resource *tbm_resource, Eina_Bool secure, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_create_shm(struct wl_shm_buffer *shm_buffer, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_create_hnd(uint handle, int width, int height, const char *func);
-E_Devmgr_Buf* _e_devmgr_buffer_alloc     (int width, int height, uint drmfmt, Eina_Bool secure, const char *func);
+E_Devmgr_Buf* _e_devmgr_buffer_alloc     (int width, int height, uint tbmfmt, Eina_Bool secure, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_alloc_fb  (int width, int height, Eina_Bool secure, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_ref    (E_Devmgr_Buf *mbuf, const char *func);
 void          _e_devmgr_buffer_unref  (E_Devmgr_Buf *mbuf, const char *func);
