@@ -342,6 +342,7 @@ E_Devmgr_Buf*
 _e_devmgr_buffer_create_fb(struct wl_resource *tbm_resource, Eina_Bool secure, const char *func)
 {
    E_Devmgr_Buf *mbuf = _e_devmgr_buffer_create(tbm_resource, secure, func);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
    if (drmModeAddFB2(e_devmgr_drm_fd, mbuf->width, mbuf->height, DRM_FORMAT(mbuf->tbmfmt),
                      mbuf->handles, mbuf->pitches, mbuf->offsets, &mbuf->fb_id, 0))
@@ -1025,10 +1026,19 @@ _dump_png(const char* file, const void * data, int width, int height)
    EINA_SAFETY_ON_NULL_RETURN(fp);
 
    png_structp pPngStruct = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-   EINA_SAFETY_ON_NULL_RETURN(pPngStruct);
+   if (!pPngStruct)
+     {
+        fclose(fp);
+        return;
+     }
 
    png_infop pPngInfo = png_create_info_struct(pPngStruct);
-   EINA_SAFETY_ON_NULL_RETURN(pPngInfo);
+   if (!pPngInfo)
+     {
+        png_destroy_write_struct(&pPngStruct, NULL);
+        fclose(fp);
+        return;
+     }
 
    png_init_io(pPngStruct, fp);
    png_set_IHDR(pPngStruct,

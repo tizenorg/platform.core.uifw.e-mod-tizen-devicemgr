@@ -233,6 +233,8 @@ _e_devmgr_cvt_queue(E_Devmgr_Cvt *cvt, E_Devmgr_CvtBuf *cbuf)
    int i;
    int index;
 
+   EINA_SAFETY_ON_NULL_RETURN_VAL(cbuf->mbuf, EINA_FALSE);
+
    set_mbuf_converting(cbuf->mbuf, cvt, EINA_TRUE);
 
    index = _e_devmgr_cvt_get_empty_index(cvt, cbuf->type);
@@ -403,13 +405,16 @@ _e_devmgr_cvt_ipp_handler(unsigned int prop_id, unsigned int *buf_idx,
    E_Devmgr_CvtBuf *src_cbuf, *dst_cbuf;
    E_Devmgr_Buf *src_vbuf, *dst_vbuf;
    E_Devmgr_CvtFuncData *func_data;
+   uint stamp;
 
+   EINA_SAFETY_ON_NULL_RETURN(cvt);
    EINA_SAFETY_ON_NULL_RETURN(buf_idx);
 
-   cvt = find_cvt(cvt->stamp);
+   stamp = cvt->stamp;
+   cvt = find_cvt(stamp);
    if (!cvt)
      {
-        ERR("invalid cvt's stamp(%d).", cvt->stamp);
+        ERR("invalid cvt's stamp(%d).", stamp);
         return;
      }
 

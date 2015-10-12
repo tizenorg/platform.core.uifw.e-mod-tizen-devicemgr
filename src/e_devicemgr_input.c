@@ -1525,7 +1525,7 @@ _input_dev_key_remap(void)
                       (name) &&
                       (!strcmp(name, "au0828 IR (Hauppauge HVR950Q)")))
                     {
-                       sprintf(path, "/dev/input/%s", sysname);
+                       snprintf(path, sizeof(path), "/dev/input/%s", sysname);
 
                        fd = open(path, O_RDONLY);
                        EINA_SAFETY_ON_FALSE_RETURN(fd >= 0);

@@ -353,7 +353,9 @@ e_devicemgr_drm_set_property(unsigned int obj_id, unsigned int obj_type,
    props = drmModeObjectGetProperties(e_devmgr_drm_fd, obj_id, obj_type);
    if (!props)
      {
-        ERR("error: drmModeObjectGetProperties. (%s)", strerror(errno));
+        char errbuf[128] = {0,};
+        strerror_r(errno, errbuf, sizeof(errbuf));
+        ERR("error: drmModeObjectGetProperties. (%s)", errbuf);
         return 0;
      }
    for (i = 0; i < props->count_props; i++)
@@ -362,7 +364,9 @@ e_devicemgr_drm_set_property(unsigned int obj_id, unsigned int obj_type,
         int ret;
         if (!prop)
           {
-             ERR("error: drmModeGetProperty. (%s)", strerror(errno));
+             char errbuf[128] = {0,};
+             strerror_r(errno, errbuf, sizeof(errbuf));
+             ERR("error: drmModeGetProperty. (%s)", errbuf);
              drmModeFreeObjectProperties(props);
              return 0;
           }
@@ -371,7 +375,9 @@ e_devicemgr_drm_set_property(unsigned int obj_id, unsigned int obj_type,
              ret = drmModeObjectSetProperty(e_devmgr_drm_fd, obj_id, obj_type, prop->prop_id, value);
              if (ret < 0)
                {
-                  ERR("error: drmModeObjectSetProperty. (%s)", strerror(errno));
+                  char errbuf[128] = {0,};
+                  strerror_r(errno, errbuf, sizeof(errbuf));
+                  ERR("error: drmModeObjectSetProperty. (%s)", errbuf);
                   drmModeFreeProperty(prop);
                   drmModeFreeObjectProperties(props);
                   return 0;
@@ -411,7 +417,9 @@ e_devicemgr_drm_ipp_set(struct drm_exynos_ipp_property *property)
     ret = ioctl(e_devmgr_drm_fd, DRM_IOCTL_EXYNOS_IPP_SET_PROPERTY, property);
     if (ret)
     {
-        ERR("failed. (%s)", strerror(errno));
+        char errbuf[128] = {0,};
+        strerror_r(errno, errbuf, sizeof(errbuf));
+        ERR("failed. (%s)", errbuf);
         return -1;
     }
 
@@ -434,8 +442,10 @@ e_devicemgr_drm_ipp_queue(struct drm_exynos_ipp_queue_buf *buf)
     ret = ioctl(e_devmgr_drm_fd, DRM_IOCTL_EXYNOS_IPP_QUEUE_BUF, buf);
     if (ret)
     {
+        char errbuf[128] = {0,};
+        strerror_r(errno, errbuf, sizeof(errbuf));
         ERR("failed. prop_id(%d) op(%d) buf(%d) id(%d). (%s)",
-            buf->prop_id, buf->ops_id, buf->buf_type, buf->buf_id, strerror(errno));
+            buf->prop_id, buf->ops_id, buf->buf_type, buf->buf_id, errbuf);
         return EINA_FALSE;
     }
 
@@ -456,7 +466,9 @@ e_devicemgr_drm_ipp_cmd(struct drm_exynos_ipp_cmd_ctrl *ctrl)
    ret = ioctl(e_devmgr_drm_fd, DRM_IOCTL_EXYNOS_IPP_CMD_CTRL, ctrl);
    if (ret)
      {
-        ERR("failed. prop_id(%d) ctrl(%d). (%s)", ctrl->prop_id, ctrl->ctrl, strerror(errno));
+        char errbuf[128] = {0,};
+        strerror_r(errno, errbuf, sizeof(errbuf));
+        ERR("failed. prop_id(%d) ctrl(%d). (%s)", ctrl->prop_id, ctrl->ctrl, errbuf);
         return EINA_FALSE;
      }
 
@@ -479,8 +491,10 @@ e_devicemgr_drm_get_cur_msc (int pipe, uint *msc)
    vbl.request.sequence = 0;
    if (drmWaitVBlank(e_devmgr_drm_fd, &vbl))
      {
+        char errbuf[128] = {0,};
+        strerror_r(errno, errbuf, sizeof(errbuf));
+        ERR("first get vblank counter failed: %s", errbuf);
         *msc = 0;
-        ERR("first get vblank counter failed: %s", strerror(errno));
         return EINA_FALSE;
      }
 
@@ -505,7 +519,9 @@ e_devicemgr_drm_wait_vblank(int pipe, uint *target_msc, void *data)
 
    if (drmWaitVBlank(e_devmgr_drm_fd, &vbl))
      {
-        ERR("first get vblank counter failed: %s", strerror(errno));
+        char errbuf[128] = {0,};
+        strerror_r(errno, errbuf, sizeof(errbuf));
+        ERR("first get vblank counter failed: %s", errbuf);
         return EINA_FALSE;
      }
 

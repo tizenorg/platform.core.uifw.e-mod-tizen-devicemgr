@@ -251,6 +251,7 @@ _e_tz_screenmirror_dst_buffer_get(E_Mirror_Buffer *buffer)
             return mbuf;
 
         mbuf = e_devmgr_buffer_create_shm(shm_buffer);
+        EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
         DBG("capture buffer: %c%c%c%c %dx%d (%d)",
             FOURCC_STR(mbuf->tbmfmt), mbuf->width, mbuf->height, mbuf->pitches[0]);
@@ -262,6 +263,7 @@ _e_tz_screenmirror_dst_buffer_get(E_Mirror_Buffer *buffer)
             return mbuf;
 
         mbuf = e_devmgr_buffer_create(buffer->resource, EINA_FALSE);
+        EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
         DBG("capture buffer: %c%c%c%c %dx%d (%d,%d,%d) (%d,%d,%d)",
             FOURCC_STR(mbuf->tbmfmt),
@@ -659,7 +661,7 @@ _e_tz_screenmirror_create(struct wl_client *client, struct wl_resource *shooter_
 
    return mirror;
 fail_create:
-   if (mirror) E_FREE(mirror);
+   E_FREE(mirror);
    return NULL;
 }
 
@@ -767,7 +769,7 @@ _e_tz_screenmirror_cb_dequeue(struct wl_client *client EINA_UNUSED, struct wl_re
      }
 
    buffer = _e_tz_screenmirror_buffer_get(mirror, buffer_resource);
-   if (!eina_list_data_find_list(mirror->buffer_queue, buffer))
+   if (!buffer || !eina_list_data_find_list(mirror->buffer_queue, buffer))
      return;
 
    _e_tz_screenmirror_buffer_dequeue(buffer);
