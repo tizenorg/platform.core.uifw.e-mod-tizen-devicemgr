@@ -37,43 +37,26 @@
 
 typedef struct _MBufFreeFuncInfo
 {
-   MBuf_Free_Func  func;
-   void             *data;
+   MBuf_Free_Func func;
+   void *data;
 } MBufFreeFuncInfo;
-
-typedef struct _ColorTable
-{
-   unsigned int            tbmfmt;
-   E_Devmgr_Buf_Color_Type type;
-} ColorTable;
-
-static ColorTable color_table[] =
-{
-   { TBM_FORMAT_ARGB8888,  TYPE_RGB    },
-   { TBM_FORMAT_XRGB8888,  TYPE_RGB    },
-   { TBM_FORMAT_YVU420,    TYPE_YUV420 },
-   { TBM_FORMAT_YUV420,    TYPE_YUV420 },
-   { TBM_FORMAT_NV12MT,    TYPE_YUV420 },
-   { TBM_FORMAT_NV12,      TYPE_YUV420 },
-   { TBM_FORMAT_NV21,      TYPE_YUV420 },
-   { TBM_FORMAT_YUYV,      TYPE_YUV422 },
-   { TBM_FORMAT_UYVY,      TYPE_YUV422 },
-};
 
 static void _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func);
 #define e_devmgr_buffer_free(b) _e_devmgr_buffer_free(b,__FUNCTION__)
 
 static Eina_List *mbuf_lists;
 
-int
-e_devmgr_buf_image_attr(uint tbmfmt, int w, int h, uint *pitches, uint *lengths)
+static int
+_e_devmgr_buf_image_attr(tbm_format tbmfmt, int w, int h, uint *pitches, uint *offsets, uint *lengths, uint *num_plane)
 {
    int size = 0, tmp = 0;
 
+   if (offsets) offsets[0] = 0;
    switch (tbmfmt)
      {
       case TBM_FORMAT_ARGB8888:
       case TBM_FORMAT_XRGB8888:
+        if (num_plane) *num_plane = 1;
         size += (w << 2);
         if (pitches) pitches[0] = size;
         size *= h;
@@ -82,6 +65,7 @@ e_devmgr_buf_image_attr(uint tbmfmt, int w, int h, uint *pitches, uint *lengths)
       /* YUV422, packed */
       case TBM_FORMAT_YUV422:
       case TBM_FORMAT_YVU422:
+        if (num_plane) *num_plane = 1;
         size = w << 1;
         if (pitches) pitches[0] = size;
         size *= h;
@@ -90,24 +74,29 @@ e_devmgr_buf_image_attr(uint tbmfmt, int w, int h, uint *pitches, uint *lengths)
       /* YUV420, 3 planar */
       case TBM_FORMAT_YUV420:
       case TBM_FORMAT_YVU420:
+        if (num_plane) *num_plane = 3;
         size = ROUNDUP(w, 4);
         if (pitches) pitches[0] = size;
         size *= h;
         if (lengths) lengths[0] = size;
+        if (offsets) offsets[1] = size;
         tmp = ROUNDUP((w >> 1), 4);
         if (pitches) pitches[1] = pitches[2] = tmp;
         tmp *= (h >> 1);
         size += tmp;
         if (lengths) lengths[1] = tmp;
+        if (offsets) offsets[2] = size;
         size += tmp;
         if (lengths) lengths[2] = tmp;
         break;
       /* YUV420, 2 planar */
       case TBM_FORMAT_NV12:
       case TBM_FORMAT_NV21:
+        if (num_plane) *num_plane = 2;
         if (pitches) pitches[0] = w;
         size = w * h;
         if (lengths) lengths[0] = size;
+        if (offsets) offsets[1] = size;
         if (pitches) pitches[1] = w;
         tmp = (w) * (h >> 1);
         size += tmp;
@@ -115,9 +104,11 @@ e_devmgr_buf_image_attr(uint tbmfmt, int w, int h, uint *pitches, uint *lengths)
         break;
       /* YUV420, 2 planar, tiled */
       case TBM_FORMAT_NV12MT:
+        if (num_plane) *num_plane = 2;
         if (pitches) pitches[0] = w;
         size = ALIGN_TO_8KB(ALIGN_TO_128B(w) * ALIGN_TO_32B(h));
         if (lengths) lengths[0] = size;
+        if (offsets) offsets[1] = size;
         if (pitches) pitches[1] = w;
         tmp = ALIGN_TO_8KB(ALIGN_TO_128B(w) * ALIGN_TO_32B(h >> 1));
         size += tmp;
@@ -128,87 +119,6 @@ e_devmgr_buf_image_attr(uint tbmfmt, int w, int h, uint *pitches, uint *lengths)
      }
 
    return size;
-}
-
-static tbm_bo
-_e_devmgr_buf_normal_alloc(int size, int flags)
-{
-   return tbm_bo_alloc(e_devmgr_bufmgr, size, flags);
-}
-
-static tbm_bo
-_e_devmgr_buf_secure_alloc(int size, int flags)
-{
-   struct tzmem_get_region tzmem_get = {0,};
-   struct drm_prime_handle arg_handle = {0,};
-   struct drm_gem_flink arg_flink = {0,};
-   struct drm_gem_close arg_close = {0,};
-   tbm_bo bo = NULL;
-   int tzmem_fd;
-
-   tzmem_fd = -1;
-   tzmem_get.fd = -1;
-
-   tzmem_fd = open("/dev/tzmem", O_EXCL);
-   EINA_SAFETY_ON_FALSE_GOTO(tzmem_fd >= 0, done_secure_buffer);
-
-   tzmem_get.key = "fimc";
-   tzmem_get.size = size;
-   if (ioctl(tzmem_fd, TZMEM_IOC_GET_TZMEM, &tzmem_get))
-     {
-        ERR("failed : create tzmem (%d)", size);
-        goto done_secure_buffer;
-     }
-   EINA_SAFETY_ON_FALSE_GOTO(tzmem_get.fd >= 0, done_secure_buffer);
-
-   arg_handle.fd = (__s32)tzmem_get.fd;
-   if (drmIoctl(e_devmgr_drm_fd, DRM_IOCTL_PRIME_FD_TO_HANDLE, &arg_handle))
-     {
-        ERR("failed : convert to gem (%d)", tzmem_get.fd);
-        goto done_secure_buffer;
-     }
-   EINA_SAFETY_ON_FALSE_GOTO(arg_handle.handle > 0, done_secure_buffer);
-
-   arg_flink.handle = arg_handle.handle;
-   if (drmIoctl(e_devmgr_drm_fd, DRM_IOCTL_GEM_FLINK, &arg_flink))
-     {
-        ERR("failed : flink gem (%d)", arg_handle.handle);
-        goto done_secure_buffer;
-     }
-   EINA_SAFETY_ON_FALSE_GOTO(arg_flink.name > 0, done_secure_buffer);
-
-   bo = tbm_bo_import(e_devmgr_bufmgr, arg_flink.name);
-   EINA_SAFETY_ON_FALSE_GOTO(bo != NULL, done_secure_buffer);
-
-   done_secure_buffer:
-   if (arg_handle.handle > 0)
-     {
-        arg_close.handle = arg_handle.handle;
-        if (drmIoctl(e_devmgr_drm_fd, DRM_IOCTL_GEM_CLOSE, &arg_close))
-          ERR("failed : close gem (%d)", arg_handle.handle);
-     }
-
-   if (tzmem_get.fd >= 0)
-     close(tzmem_get.fd);
-
-   if (tzmem_fd >= 0)
-     close(tzmem_fd);
-
-   return bo;
-}
-
-E_Devmgr_Buf_Color_Type
-e_devmgr_buffer_color_type(uint tbmfmt)
-{
-   int i, size;
-
-   size = sizeof(color_table) / sizeof(ColorTable);
-
-   for (i = 0; i < size; i++)
-     if (color_table[i].tbmfmt == tbmfmt)
-       return color_table[i].type;
-
-   return TYPE_NONE;
 }
 
 static E_Devmgr_Buf*
@@ -229,6 +139,29 @@ _find_mbuf(uint stamp)
    return NULL;
 }
 
+static tbm_bo
+_handle_to_bo(uint handle)
+{
+   struct drm_gem_flink arg = {0,};
+   tbm_bo bo;
+
+   arg.handle = handle;
+   if (drmIoctl(e_devmgr_drm_fd, DRM_IOCTL_GEM_FLINK, &arg))
+     {
+        ERR("failed flink id (gem:%d)\n", handle);
+        return NULL;
+     }
+
+   bo = tbm_bo_import(e_devmgr_bufmgr, arg.name);
+   if (!bo)
+     {
+        ERR("failed import (gem:%d, name:%d)\n", handle, arg.name);
+        return NULL;
+     }
+
+   return bo;
+}
+
 static void
 _e_devmgr_buffer_cb_resource_destroy(struct wl_listener *listener, void *data)
 {
@@ -239,173 +172,108 @@ _e_devmgr_buffer_cb_resource_destroy(struct wl_listener *listener, void *data)
 }
 
 E_Devmgr_Buf*
-_e_devmgr_buffer_create(struct wl_resource *tbm_resource, Eina_Bool secure, const char *func)
+_e_devmgr_buffer_create(struct wl_resource *resource, const char *func)
 {
    E_Devmgr_Buf *mbuf = NULL;
-   tbm_surface_h tbm_surf;
-   uint stamp;
-   int i;
+   struct wl_shm_buffer *shm_buffer;
+   tbm_surface_h tbm_surface;
 
-   EINA_SAFETY_ON_NULL_RETURN_VAL(tbm_resource, NULL);
-
-   tbm_surf = wayland_tbm_server_get_surface(e_comp->wl_comp_data->tbm.server, tbm_resource);
-   EINA_SAFETY_ON_NULL_RETURN_VAL(tbm_surf, NULL);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(resource, NULL);
 
    mbuf = calloc(1, sizeof(E_Devmgr_Buf));
    EINA_SAFETY_ON_FALSE_GOTO(mbuf != NULL, create_fail);
 
-   mbuf->tbmfmt = tbm_surface_get_format(tbm_surf);
-   mbuf->width = tbm_surface_get_width(tbm_surf);
-   mbuf->height = tbm_surface_get_height(tbm_surf);
+   mbuf->ref_cnt = 1;
+   mbuf->stamp = e_devmgr_buffer_get_mills();
+   while (_find_mbuf(mbuf->stamp))
+     mbuf->stamp++;
+   mbuf->func = strdup(func);
 
-   for (i = 0; i < 3; i++)
+   mbuf->resource = resource;
+   mbuf->buffer_destroy_listener.notify = _e_devmgr_buffer_cb_resource_destroy;
+   wl_resource_add_destroy_listener(resource,
+                                    &mbuf->buffer_destroy_listener);
+
+   if ((shm_buffer = wl_shm_buffer_get(resource)))
      {
-        uint32_t size = 0, offset = 0, pitch = 0;
-        tbm_bo bo;
+        uint32_t tbmfmt = wl_shm_buffer_get_format(shm_buffer);
 
-        bo = tbm_surface_internal_get_bo(tbm_surf, i);
-        if (bo)
+        mbuf->type = TYPE_SHM;
+
+        if (tbmfmt == WL_SHM_FORMAT_ARGB8888)
+          mbuf->tbmfmt = TBM_FORMAT_ARGB8888;
+        else if (tbmfmt == WL_SHM_FORMAT_XRGB8888)
+          mbuf->tbmfmt = TBM_FORMAT_XRGB8888;
+        else
+          mbuf->tbmfmt = tbmfmt;
+
+        mbuf->width = wl_shm_buffer_get_width(shm_buffer);
+        mbuf->height = wl_shm_buffer_get_height(shm_buffer);
+        mbuf->pitches[0] = wl_shm_buffer_get_stride(shm_buffer);
+        mbuf->ptrs[0] = wl_shm_buffer_get_data(shm_buffer);
+     }
+   else if ((tbm_surface = wayland_tbm_server_get_surface(e_comp->wl_comp_data->tbm.server, resource)))
+     {
+        int i;
+
+        mbuf->type = TYPE_TBM;
+        mbuf->tbm_surface = tbm_surface;
+        tbm_surface_internal_ref(tbm_surface);
+
+        mbuf->tbmfmt = tbm_surface_get_format(tbm_surface);
+        mbuf->width = tbm_surface_get_width(tbm_surface);
+        mbuf->height = tbm_surface_get_height(tbm_surface);
+
+        for (i = 0; i < 3; i++)
           {
-             mbuf->handles[i] = tbm_bo_get_handle(bo, TBM_DEVICE_DEFAULT).u32;
-             EINA_SAFETY_ON_FALSE_GOTO(mbuf->handles[i] > 0, create_fail);
+             uint32_t size = 0, offset = 0, pitch = 0;
+             tbm_bo bo;
 
-             if (!secure)
+             bo = tbm_surface_internal_get_bo(tbm_surface, i);
+             if (bo)
                {
+                  mbuf->handles[i] = tbm_bo_get_handle(bo, TBM_DEVICE_DEFAULT).u32;
+                  EINA_SAFETY_ON_FALSE_GOTO(mbuf->handles[i] > 0, create_fail);
+
                   mbuf->ptrs[i] = tbm_bo_get_handle(bo, TBM_DEVICE_CPU).ptr;
                   EINA_SAFETY_ON_FALSE_GOTO(mbuf->ptrs[i] != NULL, create_fail);
 
                   mbuf->names[i] = tbm_bo_export(bo);
                   EINA_SAFETY_ON_FALSE_GOTO(mbuf->names[i] > 0, create_fail);
                }
+
+             tbm_surface_internal_get_plane_data(tbm_surface, i, &size, &offset, &pitch);
+             mbuf->pitches[i] = pitch;
+             mbuf->offsets[i] = offset;
           }
 
-        tbm_surface_internal_get_plane_data(tbm_surf, i, &size, &offset, &pitch);
-        mbuf->pitches[i] = pitch;
-        mbuf->offsets[i] = offset;
+        switch(mbuf->tbmfmt)
+          {
+           case TBM_FORMAT_YVU420:
+           case TBM_FORMAT_YUV420:
+             if (!mbuf->ptrs[1])
+                mbuf->ptrs[1] = mbuf->ptrs[0];
+             if (!mbuf->ptrs[2])
+                mbuf->ptrs[2] = mbuf->ptrs[1];
+             break;
+           case TBM_FORMAT_NV12:
+           case TBM_FORMAT_NV21:
+             if (!mbuf->ptrs[1])
+               mbuf->ptrs[1] = mbuf->ptrs[0];
+             break;
+           default:
+             break;
+          }
      }
-
-   switch(mbuf->tbmfmt)
+   else
      {
-      case TBM_FORMAT_YVU420:
-      case TBM_FORMAT_YUV420:
-        if (!mbuf->ptrs[1])
-           mbuf->ptrs[1] = mbuf->ptrs[0];
-        if (!mbuf->ptrs[2])
-           mbuf->ptrs[2] = mbuf->ptrs[1];
-        break;
-      case TBM_FORMAT_NV12:
-      case TBM_FORMAT_NV21:
-        if (!mbuf->ptrs[1])
-          mbuf->ptrs[1] = mbuf->ptrs[0];
-        break;
-      default:
-        break;
+        ERR("unknown buffer resource");
+        goto create_fail;
      }
-
-   mbuf->type = TYPE_TBM;
-   mbuf->b.tbm_resource = tbm_resource;
-
-   mbuf->secure = secure;
 
    mbuf_lists = eina_list_append(mbuf_lists, mbuf);
-
-   stamp = e_devmgr_buffer_get_mills();
-   while (_find_mbuf(stamp))
-     stamp++;
-   mbuf->stamp = stamp;
-
-   mbuf->func = strdup(func);
-   mbuf->ref_cnt = 1;
-
-   mbuf->buffer_destroy_listener.notify = _e_devmgr_buffer_cb_resource_destroy;
-   wl_resource_add_destroy_listener(tbm_resource,
-                                    &mbuf->buffer_destroy_listener);
 
    BDB("type(%d) %dx%d, %c%c%c%c, name(%d,%d,%d) hnd(%d,%d,%d), pitch(%d,%d,%d), offset(%d,%d,%d) ptr(%p,%p,%p): %s",
-       mbuf->type, mbuf->width, mbuf->height, FOURCC_STR(mbuf->tbmfmt),
-       mbuf->names[0], mbuf->names[1], mbuf->names[2],
-       mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
-       mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
-       mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2],
-       mbuf->ptrs[0], mbuf->ptrs[1], mbuf->ptrs[2],
-       func);
-
-   return mbuf;
-
-create_fail:
-   e_devmgr_buffer_free(mbuf);
-
-   return NULL;
-}
-
-E_Devmgr_Buf*
-_e_devmgr_buffer_create_fb(struct wl_resource *tbm_resource, Eina_Bool secure, const char *func)
-{
-   E_Devmgr_Buf *mbuf = _e_devmgr_buffer_create(tbm_resource, secure, func);
-   EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
-
-   if (drmModeAddFB2(e_devmgr_drm_fd, mbuf->width, mbuf->height, DRM_FORMAT(mbuf->tbmfmt),
-                     mbuf->handles, mbuf->pitches, mbuf->offsets, &mbuf->fb_id, 0))
-     BER("type(%d) %dx%d %c%c%c%c nm(%d,%d,%d) hnd(%d,%d,%d) pitch(%d,%d,%d) offset(%d,%d,%d) ptr(%p,%p,%p): %s",
-         mbuf->type, mbuf->width, mbuf->height, FOURCC_STR(mbuf->tbmfmt),
-         mbuf->names[0], mbuf->names[1], mbuf->names[2],
-         mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
-         mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
-         mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2],
-         mbuf->ptrs[0], mbuf->ptrs[1], mbuf->ptrs[2],
-         func);
-
-   EINA_SAFETY_ON_FALSE_GOTO(mbuf->fb_id > 0, create_fail);
-
-   BDB("fb_id(%d): %s", mbuf->fb_id, func);
-
-   return mbuf;
-create_fail:
-   e_devmgr_buffer_free(mbuf);
-   return NULL;
-}
-
-E_Devmgr_Buf*
-_e_devmgr_buffer_create_shm(struct wl_shm_buffer *shm_buffer, const char *func)
-{
-   E_Devmgr_Buf *mbuf = NULL;
-   uint stamp;
-   uint32_t format;
-
-   EINA_SAFETY_ON_NULL_RETURN_VAL(shm_buffer, NULL);
-
-   mbuf = calloc(1, sizeof(E_Devmgr_Buf));
-   EINA_SAFETY_ON_FALSE_GOTO(mbuf != NULL, create_fail);
-
-   format = wl_shm_buffer_get_format(shm_buffer);
-
-   if (format == WL_SHM_FORMAT_ARGB8888)
-     mbuf->tbmfmt = TBM_FORMAT_ARGB8888;
-   else if (format == WL_SHM_FORMAT_XRGB8888)
-     mbuf->tbmfmt = TBM_FORMAT_XRGB8888;
-   else
-     mbuf->tbmfmt = format;
-
-   mbuf->width = wl_shm_buffer_get_width(shm_buffer);
-   mbuf->height = wl_shm_buffer_get_height(shm_buffer);
-
-   mbuf->pitches[0] = wl_shm_buffer_get_stride(shm_buffer);
-   mbuf->ptrs[0] = wl_shm_buffer_get_data(shm_buffer);
-
-   mbuf->type = TYPE_SHM;
-   mbuf->b.shm_buffer = shm_buffer;
-
-   mbuf_lists = eina_list_append(mbuf_lists, mbuf);
-
-   stamp = e_devmgr_buffer_get_mills();
-   while (_find_mbuf(stamp))
-     stamp++;
-   mbuf->stamp = stamp;
-
-   mbuf->func = strdup(func);
-   mbuf->ref_cnt = 1;
-
-   BDB("type(%d) %dx%d %c%c%c%c nm(%d,%d,%d) hnd(%d,%d,%d) pitch(%d,%d,%d) offset(%d,%d,%d) ptr(%p,%p,%p): %s",
        mbuf->type, mbuf->width, mbuf->height, FOURCC_STR(mbuf->tbmfmt),
        mbuf->names[0], mbuf->names[1], mbuf->names[2],
        mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
@@ -426,49 +294,54 @@ E_Devmgr_Buf*
 _e_devmgr_buffer_create_hnd(uint handle, int width, int height, const char *func)
 {
    E_Devmgr_Buf *mbuf = NULL;
-   struct drm_mode_map_dumb arg = {0,};
-   uint stamp;
+   tbm_surface_h tbm_surface;
+   tbm_surface_info_s info = {0,};
+   tbm_bo bo = NULL;
 
    EINA_SAFETY_ON_FALSE_RETURN_VAL(handle > 0, NULL);
    EINA_SAFETY_ON_FALSE_RETURN_VAL(width > 0, NULL);
    EINA_SAFETY_ON_FALSE_RETURN_VAL(height > 0, NULL);
 
    mbuf = calloc(1, sizeof(E_Devmgr_Buf));
-   EINA_SAFETY_ON_FALSE_GOTO(mbuf != NULL, create_fail);
+   EINA_SAFETY_ON_NULL_GOTO(mbuf, create_fail);
 
-   mbuf->tbmfmt = TBM_FORMAT_ARGB8888;
-   mbuf->width = width;
-   mbuf->height = height;
-   mbuf->pitches[0] = (width << 2);
+   mbuf->ref_cnt = 1;
+   mbuf->stamp = e_devmgr_buffer_get_mills();
+   while (_find_mbuf(mbuf->stamp))
+     mbuf->stamp++;
+   mbuf->func = strdup(func);
 
-   mbuf->type = TYPE_HND;
-   mbuf->b.handle = mbuf->handles[0] = arg.handle = handle;
+   bo = _handle_to_bo(handle);
+   EINA_SAFETY_ON_NULL_GOTO(bo, create_fail);
 
-   if (drmIoctl(e_devmgr_drm_fd, DRM_IOCTL_MODE_MAP_DUMB, &arg))
-     {
-        ERR("cannot map handle(%d)\n", handle);
-        free(mbuf);
-        return NULL;
-     }
+   info.width = width;
+   info.height = height;
+   info.tbmfmt = TBM_FORMAT_ARGB8888;
+   info.bpp = tbm_surface_internal_get_bpp(info.tbmfmt);
+   info.num_planes = 1;
+   info.planes[0].stride = (width << 2);
 
-   mbuf->ptrs[0] = mmap(NULL, mbuf->width * mbuf->height * 4,
-                        PROT_READ|PROT_WRITE, MAP_SHARED, e_devmgr_drm_fd, arg.offset);
-   if (mbuf->ptrs[0] == MAP_FAILED)
-      {
-         ERR("cannot mmap handle(%d)\n", handle);
-         free(mbuf);
-         return NULL;
-      }
+   tbm_surface = tbm_surface_internal_create_with_bos(&info, &bo, 1);
+   EINA_SAFETY_ON_NULL_GOTO(tbm_surface, create_fail);
+
+   mbuf->type = TYPE_TBM;
+   mbuf->tbm_surface = tbm_surface;
+
+   mbuf->tbmfmt = info.tbmfmt;
+   mbuf->width = info.width;
+   mbuf->height = info.height;
+   mbuf->pitches[0] = info.planes[0].stride;
+   mbuf->handles[0] = handle;
+
+   mbuf->ptrs[0] = tbm_bo_get_handle(bo, TBM_DEVICE_CPU).ptr;
+   EINA_SAFETY_ON_FALSE_GOTO(mbuf->ptrs[0] != NULL, create_fail);
+
+   mbuf->names[0] = tbm_bo_export(bo);
+   EINA_SAFETY_ON_FALSE_GOTO(mbuf->names[0] > 0, create_fail);
+
+   tbm_bo_unref(bo);
 
    mbuf_lists = eina_list_append(mbuf_lists, mbuf);
-
-   stamp = e_devmgr_buffer_get_mills();
-   while(_find_mbuf(stamp))
-     stamp++;
-   mbuf->stamp = stamp;
-
-   mbuf->func = strdup(func);
-   mbuf->ref_cnt = 1;
 
    BDB("type(%d) %dx%d %c%c%c%c nm(%d,%d,%d) hnd(%d,%d,%d) pitch(%d,%d,%d) offset(%d,%d,%d) ptr(%p,%p,%p): %s",
        mbuf->type, mbuf->width, mbuf->height, FOURCC_STR(mbuf->tbmfmt),
@@ -482,17 +355,22 @@ _e_devmgr_buffer_create_hnd(uint handle, int width, int height, const char *func
    return mbuf;
 
 create_fail:
+   if (bo)
+     tbm_bo_unref(bo);
    e_devmgr_buffer_free(mbuf);
    return NULL;
 }
 
 E_Devmgr_Buf*
-_e_devmgr_buffer_alloc(int width, int height, uint tbmfmt, Eina_Bool secure, const char *func)
+_e_devmgr_buffer_alloc(int width, int height, tbm_format tbmfmt, const char *func)
 {
    E_Devmgr_Buf *mbuf = NULL;
-   uint length[4] = {0,};
-   uint stamp;
+   tbm_surface_h tbm_surface;
+   tbm_surface_info_s info = {0,};
+   tbm_bo bo = NULL;
+   uint length[4] = {0,}, num_plane;
    int size;
+   int i;
 
    EINA_SAFETY_ON_FALSE_RETURN_VAL(width > 0, NULL);
    EINA_SAFETY_ON_FALSE_RETURN_VAL(height > 0, NULL);
@@ -500,58 +378,66 @@ _e_devmgr_buffer_alloc(int width, int height, uint tbmfmt, Eina_Bool secure, con
    mbuf = calloc(1, sizeof(E_Devmgr_Buf));
    EINA_SAFETY_ON_FALSE_GOTO(mbuf != NULL, alloc_fail);
 
-   mbuf->tbmfmt = tbmfmt;
-   mbuf->width = width;
-   mbuf->height = height;
+   mbuf->ref_cnt = 1;
+   mbuf->stamp = e_devmgr_buffer_get_mills();
+   while (_find_mbuf(mbuf->stamp))
+     mbuf->stamp++;
+   mbuf->func = strdup(func);
 
-   size = e_devmgr_buf_image_attr(tbmfmt, ROUNDUP(width, 16), height, mbuf->pitches, length);
+   size = _e_devmgr_buf_image_attr(tbmfmt, ROUNDUP(width, 16), height,
+                                   mbuf->pitches, mbuf->offsets, length, &num_plane);
+   EINA_SAFETY_ON_FALSE_GOTO(size > 0, alloc_fail);
 
-   mbuf->type = TYPE_BO;
+   bo = tbm_bo_alloc(e_devmgr_bufmgr, size, TBM_BO_DEFAULT);
+   EINA_SAFETY_ON_NULL_GOTO(bo, alloc_fail);
 
-   if (!secure)
-     mbuf->b.bo[0] = _e_devmgr_buf_normal_alloc(size, TBM_BO_DEFAULT);
-   else
-     mbuf->b.bo[0] = _e_devmgr_buf_secure_alloc(size, TBM_BO_DEFAULT);
-   EINA_SAFETY_ON_FALSE_GOTO(mbuf->b.bo[0] != NULL, alloc_fail);
-
-   mbuf->handles[0] = tbm_bo_get_handle(mbuf->b.bo[0], TBM_DEVICE_DEFAULT).u32;
-   EINA_SAFETY_ON_FALSE_GOTO(mbuf->handles[0] > 0, alloc_fail);
-
-   mbuf->names[0] = tbm_bo_export(mbuf->b.bo[0]);
-   EINA_SAFETY_ON_FALSE_GOTO(mbuf->names[0] > 0, alloc_fail);
-
-   if (!secure)
+   info.width = width;
+   info.height = height;
+   info.tbmfmt = tbmfmt;
+   info.bpp = tbm_surface_internal_get_bpp(info.tbmfmt);
+   info.num_planes = num_plane;
+   for (i = 0; i < num_plane; i++)
      {
-        mbuf->ptrs[0] = tbm_bo_get_handle(mbuf->b.bo[0], TBM_DEVICE_CPU).ptr;
-        switch(mbuf->tbmfmt)
-          {
-           case TBM_FORMAT_YVU420:
-           case TBM_FORMAT_YUV420:
-             mbuf->offsets[1] = length[0];
-             mbuf->offsets[2] = length[0] + length[1];
-             mbuf->ptrs[2] = mbuf->ptrs[1] = mbuf->ptrs[0];
-             break;
-           case TBM_FORMAT_NV12:
-           case TBM_FORMAT_NV21:
-             mbuf->offsets[1] = length[0];
-             mbuf->ptrs[1] = mbuf->ptrs[0];
-             break;
-           default:
-             break;
-          }
+        info.planes[i].offset = mbuf->offsets[i];
+        info.planes[i].stride = mbuf->pitches[i];
      }
 
-   mbuf->secure = secure;
+   tbm_surface = tbm_surface_internal_create_with_bos(&info, &bo, 1);
+   EINA_SAFETY_ON_NULL_GOTO(tbm_surface, alloc_fail);
+
+   mbuf->type = TYPE_TBM;
+   mbuf->tbm_surface = tbm_surface;
+
+   mbuf->tbmfmt = info.tbmfmt;
+   mbuf->width = info.width;
+   mbuf->height = info.height;
+
+   mbuf->handles[0] = tbm_bo_get_handle(bo, TBM_DEVICE_DEFAULT).u32;
+   EINA_SAFETY_ON_FALSE_GOTO(mbuf->handles[0] > 0, alloc_fail);
+
+   mbuf->names[0] = tbm_bo_export(bo);
+   EINA_SAFETY_ON_FALSE_GOTO(mbuf->names[0] > 0, alloc_fail);
+
+   mbuf->ptrs[0] = tbm_bo_get_handle(bo, TBM_DEVICE_CPU).ptr;
+   EINA_SAFETY_ON_NULL_GOTO(mbuf->ptrs[0], alloc_fail);
+
+   switch(mbuf->tbmfmt)
+     {
+      case TBM_FORMAT_YVU420:
+      case TBM_FORMAT_YUV420:
+        mbuf->ptrs[2] = mbuf->ptrs[1] = mbuf->ptrs[0];
+        break;
+      case TBM_FORMAT_NV12:
+      case TBM_FORMAT_NV21:
+        mbuf->ptrs[1] = mbuf->ptrs[0];
+        break;
+      default:
+        break;
+     }
+
+   tbm_bo_unref(bo);
 
    mbuf_lists = eina_list_append(mbuf_lists, mbuf);
-
-   stamp = e_devmgr_buffer_get_mills();
-   while(_find_mbuf(stamp))
-     stamp++;
-   mbuf->stamp = stamp;
-
-   mbuf->func = strdup(func);
-   mbuf->ref_cnt = 1;
 
    BDB("type(%d) %dx%d %c%c%c%c nm(%d,%d,%d) hnd(%d,%d,%d) pitch(%d,%d,%d) offset(%d,%d,%d) ptr(%p,%p,%p): %s",
        mbuf->type, mbuf->width, mbuf->height, FOURCC_STR(mbuf->tbmfmt),
@@ -565,36 +451,9 @@ _e_devmgr_buffer_alloc(int width, int height, uint tbmfmt, Eina_Bool secure, con
    return mbuf;
 
 alloc_fail:
+   if (bo)
+     tbm_bo_unref(bo);
    e_devmgr_buffer_free(mbuf);
-
-   return NULL;
-}
-
-E_Devmgr_Buf*
-_e_devmgr_buffer_alloc_fb(int width, int height, Eina_Bool secure, const char *func)
-{
-   E_Devmgr_Buf *mbuf = _e_devmgr_buffer_alloc(width, height, TBM_FORMAT_ARGB8888, secure, func);
-   EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
-
-   if (drmModeAddFB2(e_devmgr_drm_fd, mbuf->width, mbuf->height, DRM_FORMAT(mbuf->tbmfmt),
-                     mbuf->handles, mbuf->pitches, mbuf->offsets, &mbuf->fb_id, 0))
-     BER("type(%d) %dx%d %c%c%c%c nm(%d,%d,%d) hnd(%d,%d,%d) pitch(%d,%d,%d) offset(%d,%d,%d) ptr(%p,%p,%p): %s",
-         mbuf->type, mbuf->width, mbuf->height, FOURCC_STR(mbuf->tbmfmt),
-         mbuf->names[0], mbuf->names[1], mbuf->names[2],
-         mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
-         mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
-         mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2],
-         mbuf->ptrs[0], mbuf->ptrs[1], mbuf->ptrs[2],
-         func);
-   EINA_SAFETY_ON_FALSE_GOTO(mbuf->fb_id > 0, alloc_fail);
-
-   BDB("fb_id(%d): %s", mbuf->fb_id, func);
-
-   return mbuf;
-
-alloc_fail:
-   e_devmgr_buffer_free(mbuf);
-
    return NULL;
 }
 
@@ -632,22 +491,24 @@ _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func)
 {
    MBufFreeFuncInfo *info;
    Eina_List *l, *ll;
-   int i;
 
    if (!mbuf)
      return;
 
    MBUF_RETURN_IF_FAIL(_e_devmgr_buffer_valid(mbuf, func));
 
-   if (mbuf->type == TYPE_TBM)
-     wl_list_remove(&mbuf->buffer_destroy_listener.link);
+   if (mbuf->resource)
+     {
+        mbuf->buffer_destroy_listener.notify = NULL;
+        wl_list_remove(&mbuf->buffer_destroy_listener.link);
+     }
 
    EINA_LIST_FOREACH_SAFE(mbuf->free_funcs, l, ll, info)
      {
         /* call before tmb_bo_unref and drmModeRmFB. */
         mbuf->free_funcs = eina_list_remove_list(mbuf->free_funcs, l);
         if (info->func)
-            info->func(mbuf, info->data);
+          info->func(mbuf, info->data);
         free(info);
      }
 
@@ -664,14 +525,8 @@ _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func)
         drmModeRmFB(e_devmgr_drm_fd, mbuf->fb_id);
      }
 
-   if (mbuf->type == TYPE_HND && mbuf->ptrs[0])
-      munmap(mbuf->ptrs[0], mbuf->width * mbuf->height * 4);
-
-   for (i = 0; i < 4; i++)
-     {
-        if (mbuf->type == TYPE_BO && mbuf->b.bo[i])
-          tbm_bo_unref(mbuf->b.bo[i]);
-     }
+   if (mbuf->type == TYPE_TBM)
+     tbm_surface_internal_unref(mbuf->tbm_surface);
 
    mbuf_lists = eina_list_remove(mbuf_lists, mbuf);
 
@@ -685,16 +540,35 @@ _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func)
    free(mbuf);
 }
 
+Eina_Bool
+e_devmgr_buffer_add_fb(E_Devmgr_Buf *mbuf)
+{
+   EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, EINA_FALSE);
+
+   if (mbuf->fb_id > 0)
+     return EINA_TRUE;
+
+   if (drmModeAddFB2(e_devmgr_drm_fd, mbuf->width, mbuf->height, DRM_FORMAT(mbuf->tbmfmt),
+                     mbuf->handles, mbuf->pitches, mbuf->offsets, &mbuf->fb_id, 0))
+     BER("type(%d) %dx%d %c%c%c%c nm(%d,%d,%d) hnd(%d,%d,%d) pitch(%d,%d,%d) offset(%d,%d,%d) ptr(%p,%p,%p)",
+         mbuf->type, mbuf->width, mbuf->height, FOURCC_STR(mbuf->tbmfmt),
+         mbuf->names[0], mbuf->names[1], mbuf->names[2],
+         mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
+         mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
+         mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2],
+         mbuf->ptrs[0], mbuf->ptrs[1], mbuf->ptrs[2]);
+
+   EINA_SAFETY_ON_FALSE_RETURN_VAL(mbuf->fb_id > 0, EINA_FALSE);
+
+   BDB("fb_id(%d)", mbuf->fb_id);
+
+   return EINA_TRUE;
+}
+
 void
 e_devmgr_buffer_clear(E_Devmgr_Buf *mbuf)
 {
    EINA_SAFETY_ON_NULL_RETURN(mbuf);
-
-   if (mbuf->secure)
-     {
-        BDB("can't clear secure buffer");
-        return;
-     }
 
    switch(mbuf->tbmfmt)
      {
@@ -984,14 +858,37 @@ e_devmgr_buffer_copy(E_Devmgr_Buf *srcbuf, E_Devmgr_Buf *dstbuf)
    return EINA_TRUE;
 }
 
-uint
-e_devmgr_buffer_get_mills(void)
+typedef struct _ColorTable
 {
-   struct timespec tp;
+   tbm_format tbmfmt;
+   E_Devmgr_Buf_Color_Type type;
+} ColorTable;
 
-   clock_gettime(CLOCK_MONOTONIC, &tp);
+static ColorTable color_table[] =
+{
+   { TBM_FORMAT_ARGB8888,  TYPE_RGB    },
+   { TBM_FORMAT_XRGB8888,  TYPE_RGB    },
+   { TBM_FORMAT_YVU420,    TYPE_YUV420 },
+   { TBM_FORMAT_YUV420,    TYPE_YUV420 },
+   { TBM_FORMAT_NV12MT,    TYPE_YUV420 },
+   { TBM_FORMAT_NV12,      TYPE_YUV420 },
+   { TBM_FORMAT_NV21,      TYPE_YUV420 },
+   { TBM_FORMAT_YUYV,      TYPE_YUV422 },
+   { TBM_FORMAT_UYVY,      TYPE_YUV422 },
+};
 
-   return (tp.tv_sec * 1000) + (tp.tv_nsec / 1000000L);
+E_Devmgr_Buf_Color_Type
+e_devmgr_buffer_color_type(tbm_format tbmfmt)
+{
+   int i, size;
+
+   size = sizeof(color_table) / sizeof(ColorTable);
+
+   for (i = 0; i < size; i++)
+     if (color_table[i].tbmfmt == tbmfmt)
+       return color_table[i].type;
+
+   return TYPE_NONE;
 }
 
 static void
@@ -1094,11 +991,6 @@ e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *prefix, int nth, Eina_Bool 
    const char *dir = "/tmp/dump";
 
    if (!mbuf) return;
-   if (mbuf->secure)
-     {
-        BER("can't dump a secure buffer");
-        return;
-     }
 
    if (IS_RGB(mbuf->tbmfmt))
      snprintf(path, sizeof(path), "%s/%s_%c%c%c%c_%dx%d_%03d.%s", dir, prefix,
@@ -1144,6 +1036,16 @@ e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *prefix, int nth, Eina_Bool 
      }
 
    BDB("dump %s", path);
+}
+
+uint
+e_devmgr_buffer_get_mills(void)
+{
+   struct timespec tp;
+
+   clock_gettime(CLOCK_MONOTONIC, &tp);
+
+   return (tp.tv_sec * 1000) + (tp.tv_nsec / 1000000L);
 }
 
 int
