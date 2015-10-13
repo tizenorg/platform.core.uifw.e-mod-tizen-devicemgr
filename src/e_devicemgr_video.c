@@ -31,7 +31,7 @@ struct _E_Video
    struct wl_listener client_destroy_listener;
 
    /* input info */
-   uint tbmfmt;
+   tbm_format tbmfmt;
    Eina_List *input_buffer_list;
 
    /* plane info */
@@ -209,7 +209,7 @@ _e_video_input_buffer_cb_destroy(E_Devmgr_Buf *mbuf, void *data)
    video->input_buffer_list = eina_list_remove(video->input_buffer_list, mbuf);
    video->fake_buffer_list = eina_list_remove(video->fake_buffer_list, mbuf);
 
-   if (mbuf->type == TYPE_TBM)
+   if (mbuf->comp_buffer)
      VDB("wl_buffer@%d done", wl_resource_get_id(mbuf->comp_buffer->resource));
 
    /* if cvt exists, it means that input buffer is not a frame buffer. */
@@ -241,11 +241,15 @@ _e_video_input_buffer_get(E_Video *video, E_Comp_Wl_Buffer *comp_buffer, Eina_Bo
 {
    E_Devmgr_Buf *mbuf;
 
-   if (is_fb)
-     mbuf = e_devmgr_buffer_create_fb(comp_buffer->resource, EINA_FALSE);
-   else
-     mbuf = e_devmgr_buffer_create(comp_buffer->resource, EINA_FALSE);
+   mbuf = e_devmgr_buffer_create(comp_buffer->resource);
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
+
+   if (is_fb)
+     if (!e_devmgr_buffer_add_fb(mbuf))
+       {
+          e_devmgr_buffer_unref(mbuf);
+          return NULL;
+       }
 
    mbuf->comp_buffer = comp_buffer;
 
@@ -267,8 +271,8 @@ _e_video_input_buffer_valid(E_Video *video, E_Comp_Wl_Buffer *comp_buffer)
         tbm_bo bo;
         uint32_t size = 0, offset = 0, pitch = 0;
 
-        if (mbuf->type != TYPE_TBM) continue;
-        if (mbuf->b.tbm_resource == comp_buffer->resource)
+        if (!mbuf->comp_buffer) continue;
+        if (mbuf->resource == comp_buffer->resource)
           {
              WRN("got wl_buffer@%d twice", wl_resource_get_id(comp_buffer->resource));
              return;
@@ -280,9 +284,9 @@ _e_video_input_buffer_valid(E_Video *video, E_Comp_Wl_Buffer *comp_buffer)
 
         if (mbuf->names[0] == tbm_bo_export(bo) && mbuf->offsets[0] == offset)
           {
-             WRN("tearing: wl_buffer@%d, wl_buffer@%d are same",
-                 wl_resource_get_id(mbuf->b.tbm_resource),
-                 wl_resource_get_id(comp_buffer->resource));
+             WRN("can tearing: wl_buffer@%d, wl_buffer@%d are same. gem_name(%d)",
+                 wl_resource_get_id(mbuf->resource),
+                 wl_resource_get_id(comp_buffer->resource), mbuf->names[0]);
              return;
           }
      }
@@ -342,8 +346,14 @@ _e_video_cvt_buffer_get(E_Video *video, int width, int height)
      {
         for (i = 0; i < BUFFER_MAX_COUNT; i++)
           {
-             mbuf = e_devmgr_buffer_alloc_fb(width, height, EINA_FALSE);
+             mbuf = e_devmgr_buffer_alloc(width, height, TBM_FORMAT_ARGB8888);
              EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
+
+             if (!e_devmgr_buffer_add_fb(mbuf))
+               {
+                  e_devmgr_buffer_unref(mbuf);
+                  return NULL;
+               }
 
              e_devmgr_buffer_free_func_add(mbuf, _e_video_cvt_buffer_cb_destroy, video);
 
@@ -366,7 +376,7 @@ _e_video_cvt_buffer_get(E_Video *video, int width, int height)
 
         if (l == video->next_buffer)
           {
-             VER("all video framebuffers in use (max:%d)", BUFFER_MAX_COUNT);
+             VWR("all video framebuffers in use (max:%d)", BUFFER_MAX_COUNT);
              return NULL;
           }
      }
@@ -713,7 +723,7 @@ _e_video_frame_buffer_create(E_Video *video, E_Devmgr_Buf *mbuf, Eina_Rectangle 
    vfb->video = video;
    vfb->visible_r = *visible;
 
-   if (mbuf->type == TYPE_TBM)
+   if (mbuf->comp_buffer)
      e_comp_wl_buffer_reference(&vfb->buffer_ref, mbuf->comp_buffer);
 
    return vfb;
@@ -1111,7 +1121,7 @@ _e_video_render(E_Video *video, Eina_Bool fake)
          * The fake buffer which surface has currnetly will be rendered by
          * _e_video_cb_ec_buffer_change.
          */
-        if (!last || (last && last->type == TYPE_BO && last->comp_buffer != comp_buffer))
+        if (!last || (last && last->comp_buffer != comp_buffer))
           return;
      }
    else
