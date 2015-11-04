@@ -296,29 +296,10 @@ static void
 _e_video_cvt_buffer_cb_destroy(E_Devmgr_Buf *mbuf, void *data)
 {
    E_Video *video = data;
-   E_Video_Fb *vfb;
-   Eina_List *l, *ll;
 
    video->cvt_buffer_list = eina_list_remove(video->cvt_buffer_list, mbuf);
 
-   /* if current fb is destroyed */
-   if (video->current_fb && video->current_fb->mbuf == mbuf)
-     {
-        _e_video_frame_buffer_show(video, NULL);
-        _e_video_frame_buffer_destroy(video->current_fb);
-        video->current_fb = NULL;
-        VDB("current fb destroyed");
-        return;
-     }
-
-   /* if waiting fb is destroyed */
-   EINA_LIST_FOREACH_SAFE(video->waiting_list, l, ll, vfb)
-     if (vfb->mbuf == mbuf)
-       {
-           video->waiting_list = eina_list_remove(video->waiting_list, vfb);
-          _e_video_frame_buffer_destroy(vfb);
-          return;
-       }
+   VDB("mbuf(%d) list_remove", MSTAMP(mbuf));
 }
 
 static E_Devmgr_Buf*
@@ -336,9 +317,24 @@ _e_video_cvt_buffer_get(E_Video *video, int width, int height)
         /* if we need bigger cvt_buffers, destroy all cvt_buffers and create */
         if (width > (mbuf->pitches[0] >> 2))
           {
+             E_Video_Fb *vfb;
              Eina_List *ll;
+
              EINA_LIST_FOREACH_SAFE(video->cvt_buffer_list, l, ll, mbuf)
-               e_devmgr_buffer_unref(mbuf);
+               {
+                  video->cvt_buffer_list = eina_list_remove(video->cvt_buffer_list, mbuf);
+                  e_devmgr_buffer_unref(mbuf);
+               }
+			 if (video->cvt_buffer_list)
+			   NEVER_GET_HERE();
+
+             EINA_LIST_FOREACH_SAFE(video->waiting_list, l, ll, vfb)
+               {
+                  video->waiting_list = eina_list_remove(video->waiting_list, vfb);
+                  _e_video_frame_buffer_destroy(vfb);
+               }
+			 if (video->waiting_list)
+			   NEVER_GET_HERE();
           }
      }
 
