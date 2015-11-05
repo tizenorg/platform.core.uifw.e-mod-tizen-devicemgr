@@ -16,6 +16,9 @@ static unsigned int dpms_value;
 static Eldbus_Connection *conn;
 static Eldbus_Service_Interface *iface;
 
+static Eldbus_Signal_Handler *handler_disp_on = NULL;
+static Eldbus_Signal_Handler *handler_disp_off = NULL;
+
 static Eldbus_Message *
 _e_devicemgr_dpms_set_cb(const Eldbus_Service_Interface *iface, const Eldbus_Message *msg)
 {
@@ -101,9 +104,82 @@ _e_devicemgr_dpms_name_request_cb(void *data, const Eldbus_Message *msg, Eldbus_
      }
 }
 
+static void
+_e_devicemgr_display_on_cb(void* data, const Eldbus_Message *msg)
+{
+   E_Zone *zone;
+   Eina_List *zl;
+
+   EINA_LIST_FOREACH(e_comp->zones, zl, zone)
+     {
+        ELOGF("DPMS","LCD ON   |zone:%d", NULL, NULL, zone->id);
+        e_zone_display_state_set(zone, E_ZONE_DISPLAY_STATE_ON);
+     }
+}
+
+static void
+_e_devicemgr_display_off_cb(void* data, const Eldbus_Message *msg)
+{
+   E_Zone *zone;
+   Eina_List *zl;
+
+   EINA_LIST_FOREACH(e_comp->zones, zl, zone)
+     {
+        ELOGF("DPMS","LCD OFF  |zone:%d", NULL, NULL, zone->id);
+        e_zone_display_state_set(zone, E_ZONE_DISPLAY_STATE_OFF);
+     }
+}
+
+static void
+_e_devicemgr_display_state_handler_del(void)
+{
+   if (handler_disp_on)
+     {
+        eldbus_signal_handler_del(handler_disp_on);
+        handler_disp_on = NULL;
+     }
+
+   if (handler_disp_off)
+     {
+        eldbus_signal_handler_del(handler_disp_off);
+        handler_disp_off = NULL;
+     }
+}
+
+static Eina_Bool
+_e_devicemgr_display_state_handler_add(void)
+{
+   if (!conn) return EINA_FALSE;
+
+   handler_disp_on =
+     eldbus_signal_handler_add(conn, NULL,
+                               "/Org/Tizen/System/DeviceD/Display",
+                               "org.tizen.system.deviced.display", "LCDOn",
+                               (Eldbus_Signal_Cb)_e_devicemgr_display_on_cb,
+                               NULL);
+   EINA_SAFETY_ON_NULL_GOTO(handler_disp_on, failed);
+
+   handler_disp_off =
+     eldbus_signal_handler_add(conn, NULL,
+                               "/Org/Tizen/System/DeviceD/Display",
+                               "org.tizen.system.deviced.display", "LCDOff",
+                               (Eldbus_Signal_Cb)_e_devicemgr_display_off_cb,
+                               NULL);
+   EINA_SAFETY_ON_NULL_GOTO(handler_disp_off, failed);
+
+   return EINA_TRUE;
+
+failed:
+   _e_devicemgr_display_state_handler_del();
+   return EINA_FALSE;
+}
+
+
 int
 e_devicemgr_dpms_init(void)
 {
+   Eina_Bool ret;
+
    if (eldbus_init() == 0) return 0;
 
    conn = eldbus_connection_get(ELDBUS_CONNECTION_TYPE_SYSTEM);
@@ -114,6 +190,9 @@ e_devicemgr_dpms_init(void)
 
    eldbus_name_request(conn, BUS, ELDBUS_NAME_REQUEST_FLAG_DO_NOT_QUEUE,
                       _e_devicemgr_dpms_name_request_cb, NULL);
+
+   ret = _e_devicemgr_display_state_handler_add();
+   EINA_SAFETY_ON_FALSE_GOTO(ret, failed);
 
    return 1;
 
@@ -126,6 +205,8 @@ failed:
 void
 e_devicemgr_dpms_fini(void)
 {
+   _e_devicemgr_display_state_handler_del();
+
    if (iface)
      {
         eldbus_service_interface_unregister(iface);
