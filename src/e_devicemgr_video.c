@@ -385,9 +385,10 @@ _e_video_plane_drm_output_find(unsigned int crtc_id)
 {
    Ecore_Drm_Device *dev;
    Ecore_Drm_Output *output;
-   Eina_List *devs = ecore_drm_devices_get();
+   Eina_List *devs;
    Eina_List *l, *ll;
 
+   devs = eina_list_clone(ecore_drm_devices_get());
    EINA_LIST_FOREACH(devs, l, dev)
      EINA_LIST_FOREACH(dev->outputs, ll, output)
        if (ecore_drm_output_crtc_id_get(output) == crtc_id)

@@ -616,7 +616,7 @@ _e_tz_screenmirror_create(struct wl_client *client, struct wl_resource *shooter_
    drmModeFreeResources(mode_res);
    EINA_SAFETY_ON_FALSE_GOTO(mirror->crtc_id > 0, fail_create);
 
-   devs = ecore_drm_devices_get();
+   devs = eina_list_clone(ecore_drm_devices_get());
    EINA_LIST_FOREACH(devs, l, dev)
      EINA_LIST_FOREACH(dev->outputs, ll, drm_output)
        {
