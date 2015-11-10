@@ -6,14 +6,6 @@
 
 #include <xf86drmMode.h>
 
-typedef enum _E_Devicemgr_Dpms_Mode
-{
-   E_DEVICEMGR_DPMS_MODE_ON      = 0,
-   E_DEVICEMGR_DPMS_MODE_STANDBY = 1,
-   E_DEVICEMGR_DPMS_MODE_SUSPEND = 2,
-   E_DEVICEMGR_DPMS_MODE_OFF     = 3
-} E_Devicemgr_Dpms_Mode;
-
 #define BUS "org.enlightenment.wm"
 #define PATH "/org/enlightenment/wm"
 #define INTERFACE "org.enlightenment.wm.dpms"
@@ -49,24 +41,6 @@ _e_devicemgr_dpms_set_cb(const Eldbus_Service_Interface *iface, const Eldbus_Mes
             {
                int x;
                ecore_drm_output_position_get(output, &x, NULL);
-
-               EINA_LIST_FOREACH(e_comp->zones, zl, zone)
-                 {
-                    if (uint32 == E_DEVICEMGR_DPMS_MODE_ON)
-                      {
-                         ELOGF("DPMS","LCD ON  |zone:%d", NULL, NULL, zone->id);
-                         e_zone_display_state_set(zone, E_ZONE_DISPLAY_STATE_ON);
-                      }
-                    else if (uint32 == E_DEVICEMGR_DPMS_MODE_OFF)
-                      {
-                         ELOGF("DPMS","LCD OFF |zone:%d", NULL, NULL, zone->id);
-                         e_zone_display_state_set(zone, E_ZONE_DISPLAY_STATE_OFF);
-                      }
-                    else
-                      {
-                         ELOGF("DPMS","LCD     |zone:%d", NULL, NULL, zone->id);
-                      }
-                 }
 
                /* only for main output */
                if (x != 0)
@@ -162,7 +136,6 @@ e_devicemgr_dpms_fini(void)
      }
    if (conn)
      {
-        eldbus_name_release(conn, BUS, NULL, NULL);
         eldbus_connection_unref(conn);
         conn = NULL;
      }
