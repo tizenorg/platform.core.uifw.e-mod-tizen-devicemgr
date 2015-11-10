@@ -37,13 +37,13 @@ _e_devicemgr_dpms_set_cb(const Eldbus_Service_Interface *iface, const Eldbus_Mes
      {
         Ecore_Drm_Device *dev;
         Ecore_Drm_Output *output;
-        Eina_List *devs = ecore_drm_devices_get();
-        Eina_List *l, *ll;
+        Eina_List *devs, *l, *ll;
         E_Zone *zone;
         Eina_List *zl;
 
         DBG("[devicemgr] DPMS value: %d", uint32);
 
+        devs = eina_list_clone(ecore_drm_devices_get());
         EINA_LIST_FOREACH(devs, l, dev)
           EINA_LIST_FOREACH(dev->outputs, ll, output)
             {
@@ -72,6 +72,7 @@ _e_devicemgr_dpms_set_cb(const Eldbus_Service_Interface *iface, const Eldbus_Mes
             }
 
         result = uint32;
+        if (devs) eina_list_free(devs);
      }
 
    eldbus_message_arguments_append(reply, "i", result);

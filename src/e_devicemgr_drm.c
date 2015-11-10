@@ -9,16 +9,21 @@
 #include "e_devicemgr_drm.h"
 #include "e_devicemgr_dpms.h"
 
+/* use drm event handler of ecore_drm */
+//#define USE_DRM_USER_HANDLER
+
 struct drm_handler_info
 {
    void *func;
    void *data;
 };
 
+#ifdef USE_DRM_USER_HANDLER
 static Eina_List *drm_vblank_handlers;
 static Eina_List *drm_ipp_handlers;
-
 static Ecore_Fd_Handler *drm_hdlr;
+
+#endif /* USE_DRM_USER_HANDLER */
 int e_devmgr_drm_fd = -1;
 tbm_bufmgr e_devmgr_bufmgr = NULL;
 
@@ -41,6 +46,7 @@ typedef struct _Drm_Event_Context {
                         void *user_data);
 } Drm_Event_Context;
 
+#ifdef USE_DRM_USER_HANDLER
 static void
 _e_devicemgr_drm_cb_page_flip(int fd, unsigned int sequence,
                               unsigned int tv_sec, unsigned int tv_usec,
@@ -209,21 +215,25 @@ _e_devicemgr_drm_fd_get(void)
    if (e_devmgr_drm_fd >= 0)
      return e_devmgr_drm_fd;
 
-   devs = ecore_drm_devices_get();
+   devs = eina_list_clone(ecore_drm_devices_get());
    EINA_SAFETY_ON_NULL_RETURN_VAL(devs, -1);
 
-   dev = eina_list_nth(devs, 0);
-   EINA_SAFETY_ON_NULL_RETURN_VAL(dev, -1);
+   if ((dev = eina_list_nth(devs, 0)))
+     {
+        e_devmgr_drm_fd = ecore_drm_device_fd_get(dev);
+        if (e_devmgr_drm_fd >= 0)
+          return e_devmgr_drm_fd;
+     }
 
-   e_devmgr_drm_fd = ecore_drm_device_fd_get(dev);
-   EINA_SAFETY_ON_FALSE_RETURN_VAL(e_devmgr_drm_fd >= 0, -1);
-
-   return e_devmgr_drm_fd;
+   eina_list_free(devs);
+   return -1;
 }
+#endif /* USE_DRM_USER_HANDLER */
 
 int
 e_devicemgr_drm_init(void)
 {
+#ifdef USE_DRM_USER_HANDLER
    drmVersionPtr drm_info;
 
    if (!getenv("ECORE_DRM_DEVICE_USER_HANDLER"))
@@ -254,6 +264,8 @@ e_devicemgr_drm_init(void)
      }
 
    return 1;
+#endif /* USE_DRM_USER_HANDLER */
+   return 0;
 }
 
 void
@@ -264,6 +276,7 @@ e_devicemgr_drm_fini(void)
 int
 e_devicemgr_drm_vblank_handler_add(Drm_Vblank_Func func, void *data)
 {
+#ifdef USE_DRM_USER_HANDLER
    struct drm_handler_info *info;
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(func, 0);
@@ -278,11 +291,14 @@ e_devicemgr_drm_vblank_handler_add(Drm_Vblank_Func func, void *data)
    drm_vblank_handlers = eina_list_append(drm_vblank_handlers, info);
 
    return 1;
+#endif /* USE_DRM_USER_HANDLER */
+   return 0;
 }
 
 void
 e_devicemgr_drm_vblank_handler_del(Drm_Vblank_Func func, void *data)
 {
+#ifdef USE_DRM_USER_HANDLER
    struct drm_handler_info *info;
    Eina_List *l, *ll;
 
@@ -298,11 +314,13 @@ e_devicemgr_drm_vblank_handler_del(Drm_Vblank_Func func, void *data)
              return;
           }
      }
+#endif /* USE_DRM_USER_HANDLER */
 }
 
 int
 e_devicemgr_drm_ipp_handler_add(Drm_Ipp_Func func, void *data)
 {
+#ifdef USE_DRM_USER_HANDLER
    struct drm_handler_info *info;
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(func, 0);
@@ -317,11 +335,14 @@ e_devicemgr_drm_ipp_handler_add(Drm_Ipp_Func func, void *data)
    drm_ipp_handlers = eina_list_append(drm_ipp_handlers, info);
 
    return 1;
+#endif /* USE_DRM_USER_HANDLER */
+   return 0;
 }
 
 void
 e_devicemgr_drm_ipp_handler_del(Drm_Ipp_Func func, void *data)
 {
+#ifdef USE_DRM_USER_HANDLER
    struct drm_handler_info *info;
    Eina_List *l, *ll;
 
@@ -337,12 +358,14 @@ e_devicemgr_drm_ipp_handler_del(Drm_Ipp_Func func, void *data)
              return;
           }
      }
+#endif /* USE_DRM_USER_HANDLER */
 }
 
 int
 e_devicemgr_drm_set_property(unsigned int obj_id, unsigned int obj_type,
                              const char *prop_name, unsigned int value)
 {
+#ifdef USE_DRM_USER_HANDLER
    drmModeObjectPropertiesPtr props = NULL;
    unsigned int i;
 
@@ -392,12 +415,14 @@ e_devicemgr_drm_set_property(unsigned int obj_id, unsigned int obj_type,
 
    ERR("error: drm set property.");
    drmModeFreeObjectProperties(props);
+#endif /* USE_DRM_USER_HANDLER */
    return 0;
 }
 
 int
 e_devicemgr_drm_ipp_set(struct drm_exynos_ipp_property *property)
 {
+#ifdef USE_DRM_USER_HANDLER
     int ret = 0;
 
     EINA_SAFETY_ON_NULL_RETURN_VAL(property, -1);
@@ -426,11 +451,14 @@ e_devicemgr_drm_ipp_set(struct drm_exynos_ipp_property *property)
     DBG("success. prop_id(%d) ", property->prop_id);
 
     return property->prop_id;
+#endif /* USE_DRM_USER_HANDLER */
+    return -1;
 }
 
 Eina_Bool
 e_devicemgr_drm_ipp_queue(struct drm_exynos_ipp_queue_buf *buf)
 {
+#ifdef USE_DRM_USER_HANDLER
     int ret = 0;
 
     EINA_SAFETY_ON_NULL_RETURN_VAL(buf, EINA_FALSE);
@@ -452,11 +480,14 @@ e_devicemgr_drm_ipp_queue(struct drm_exynos_ipp_queue_buf *buf)
     DBG("success. prop_id(%d) ", buf->prop_id);
 
     return EINA_TRUE;
+#endif /* USE_DRM_USER_HANDLER */
+    return EINA_FALSE;
 }
 
 Eina_Bool
 e_devicemgr_drm_ipp_cmd(struct drm_exynos_ipp_cmd_ctrl *ctrl)
 {
+#ifdef USE_DRM_USER_HANDLER
    int ret = 0;
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(ctrl, EINA_FALSE);
@@ -475,11 +506,14 @@ e_devicemgr_drm_ipp_cmd(struct drm_exynos_ipp_cmd_ctrl *ctrl)
    DBG("success. prop_id(%d) ", ctrl->prop_id);
 
    return EINA_TRUE;
+#endif /* USE_DRM_USER_HANDLER */
+   return EINA_FALSE;
 }
 
 Eina_Bool
 e_devicemgr_drm_get_cur_msc (int pipe, uint *msc)
 {
+#ifdef USE_DRM_USER_HANDLER
    drmVBlank vbl;
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(msc, EINA_FALSE);
@@ -501,11 +535,14 @@ e_devicemgr_drm_get_cur_msc (int pipe, uint *msc)
    *msc = vbl.reply.sequence;
 
    return EINA_TRUE;
+#endif /* USE_DRM_USER_HANDLER */
+   return EINA_FALSE;
 }
 
 Eina_Bool
 e_devicemgr_drm_wait_vblank(int pipe, uint *target_msc, void *data)
 {
+#ifdef USE_DRM_USER_HANDLER
    drmVBlank vbl;
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(target_msc, EINA_FALSE);
@@ -528,4 +565,6 @@ e_devicemgr_drm_wait_vblank(int pipe, uint *target_msc, void *data)
    *target_msc = vbl.reply.sequence;
 
    return EINA_TRUE;
+#endif /* USE_DRM_USER_HANDLER */
+   return EINA_FALSE;
 }

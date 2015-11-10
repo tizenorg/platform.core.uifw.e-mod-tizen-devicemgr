@@ -1505,7 +1505,7 @@ _input_dev_key_remap(void)
 {
    char path[256];
    int fd, ret, codes[2];
-   Eina_List *l, *l2, *l3;
+   Eina_List *devices, *l, *l2, *l3;
    Ecore_Drm_Device *dev;
    Ecore_Drm_Seat *seat;
    Ecore_Drm_Evdev *evdev;
@@ -1513,7 +1513,8 @@ _input_dev_key_remap(void)
 
    if (remapped) return;
 
-   EINA_LIST_FOREACH(ecore_drm_devices_get(), l, dev)
+   devices = eina_list_clone(ecore_drm_devices_get());
+   EINA_LIST_FOREACH(devices, l, dev)
      {
         EINA_LIST_FOREACH(dev->seats, l2, seat)
           {
