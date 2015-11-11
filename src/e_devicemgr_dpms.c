@@ -53,19 +53,9 @@ _e_devicemgr_dpms_set_cb(const Eldbus_Service_Interface *iface, const Eldbus_Mes
                EINA_LIST_FOREACH(e_comp->zones, zl, zone)
                  {
                     if (uint32 == E_DEVICEMGR_DPMS_MODE_ON)
-                      {
-                         ELOG("DPMS_ON", NULL, NULL);
-                         e_zone_display_state_set(zone, E_ZONE_DISPLAY_STATE_ON);
-                      }
+                      e_zone_display_state_set(zone, E_ZONE_DISPLAY_STATE_ON);
                     else if (uint32 == E_DEVICEMGR_DPMS_MODE_OFF)
-                      {
-                         ELOG("DPMS_OFF", NULL, NULL);
-                         e_zone_display_state_set(zone, E_ZONE_DISPLAY_STATE_OFF);
-                      }
-                    else
-                      {
-                         ELOG("DPMS_UNKOWN", NULL, NULL);
-                      }
+                      e_zone_display_state_set(zone, E_ZONE_DISPLAY_STATE_OFF);
                  }
 
                /* only for main output */
