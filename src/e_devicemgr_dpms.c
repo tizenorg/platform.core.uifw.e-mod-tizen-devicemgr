@@ -54,17 +54,17 @@ _e_devicemgr_dpms_set_cb(const Eldbus_Service_Interface *iface, const Eldbus_Mes
                  {
                     if (uint32 == E_DEVICEMGR_DPMS_MODE_ON)
                       {
-                         ELOGF("DPMS", "LCD ON  |zone:%d", NULL, NULL, (unsigned int)zone->id);
+                         ELOG("DPMS_ON", NULL, NULL);
                          e_zone_display_state_set(zone, E_ZONE_DISPLAY_STATE_ON);
                       }
                     else if (uint32 == E_DEVICEMGR_DPMS_MODE_OFF)
                       {
-                         ELOGF("DPMS", "LCD OFF |zone:%d", NULL, NULL, (unsigned int)zone->id);
+                         ELOG("DPMS_OFF", NULL, NULL);
                          e_zone_display_state_set(zone, E_ZONE_DISPLAY_STATE_OFF);
                       }
                     else
                       {
-                         ELOGF("DPMS", "LCD     |zone:%d", NULL, NULL, (unsigned int)zone->id);
+                         ELOG("DPMS_UNKOWN", NULL, NULL);
                       }
                  }
 
