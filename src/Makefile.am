@@ -18,7 +18,8 @@ module_la_SOURCES      += \
 	e_devicemgr_video.c \
 	e_devicemgr_drm.c \
 	e_devicemgr_buffer.c \
-	e_devicemgr_converter.c
+	e_devicemgr_converter.c \
+	e_devicemgr_embedded_compositor.c
 endif
 
 module_la_LIBADD       =
