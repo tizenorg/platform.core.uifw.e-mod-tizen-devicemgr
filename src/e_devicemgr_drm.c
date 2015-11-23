@@ -222,7 +222,10 @@ _e_devicemgr_drm_fd_get(void)
      {
         e_devmgr_drm_fd = ecore_drm_device_fd_get(dev);
         if (e_devmgr_drm_fd >= 0)
-          return e_devmgr_drm_fd;
+          {
+             eina_list_free(devs);
+             return e_devmgr_drm_fd;
+          }
      }
 
    eina_list_free(devs);

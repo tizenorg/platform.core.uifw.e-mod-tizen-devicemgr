@@ -1550,11 +1550,13 @@ _input_dev_key_remap(void)
                             DBG("[DEVMGR] Failed to change keymap: %s", path);
                          }
                        close(fd);
+                       eina_list_free(devices);
                        return;
                     }
                }
           }
      }
+   eina_list_free(devices);
 }
 
 static void

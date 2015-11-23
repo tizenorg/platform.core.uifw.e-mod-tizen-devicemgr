@@ -392,8 +392,11 @@ _e_video_plane_drm_output_find(unsigned int crtc_id)
    EINA_LIST_FOREACH(devs, l, dev)
      EINA_LIST_FOREACH(dev->outputs, ll, output)
        if (ecore_drm_output_crtc_id_get(output) == crtc_id)
-         return output;
-
+         {
+            eina_list_free(devs);
+            return output;
+         }
+   eina_list_free(devs);
    return NULL;
 }
 

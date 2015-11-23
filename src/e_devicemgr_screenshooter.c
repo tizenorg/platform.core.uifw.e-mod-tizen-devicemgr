@@ -624,6 +624,7 @@ _e_tz_screenmirror_create(struct wl_client *client, struct wl_resource *shooter_
           mirror->drm_output = drm_output;
           break;
        }
+   eina_list_free(devs);
    EINA_SAFETY_ON_NULL_GOTO(mirror->drm_output, fail_create);
 
    e_devicemgr_drm_vblank_handler_add(_e_tz_screenmirror_vblank_handler, mirror);
