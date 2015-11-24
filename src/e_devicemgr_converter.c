@@ -73,6 +73,9 @@ struct _E_Devmgr_Cvt
 
 static Eina_List *cvt_list;
 
+static void _e_devmgr_cvt_ipp_handler(unsigned int prop_id, unsigned int *buf_idx,
+                          unsigned int tv_sec, unsigned int tv_usec, void *data);
+
 static E_Devmgr_Cvt*
 find_cvt(uint stamp)
 {
@@ -150,6 +153,102 @@ _print_buf_list(E_Devmgr_Cvt *cvt, Eina_List *list, char *str)
       p += snprintf (p, 128, " %d(%d)", MSTAMP(cbuf->mbuf), cbuf->index);
 
     INF("cvt(%p) list(%s): %s", cvt, str, nums);
+}
+
+static int
+_drm_ipp_set(struct drm_exynos_ipp_property *property)
+{
+    int ret = 0;
+
+    EINA_SAFETY_ON_NULL_RETURN_VAL(property, -1);
+
+    if (property->prop_id == (__u32)-1)
+        property->prop_id = 0;
+
+    DBG("src : flip(%x) deg(%d) fmt(%c%c%c%c) sz(%dx%d) pos(%d,%d %dx%d)  ",
+        property->config[0].flip, property->config[0].degree, FOURCC_STR(property->config[0].fmt),
+        property->config[0].sz.hsize, property->config[0].sz.vsize,
+        property->config[0].pos.x, property->config[0].pos.y, property->config[0].pos.w, property->config[0].pos.h);
+    DBG("dst : flip(%x) deg(%d) fmt(%c%c%c%c) sz(%dx%d) pos(%d,%d %dx%d)  ",
+        property->config[1].flip, property->config[1].degree, FOURCC_STR(property->config[1].fmt),
+        property->config[1].sz.hsize, property->config[1].sz.vsize,
+        property->config[1].pos.x, property->config[1].pos.y, property->config[1].pos.w, property->config[1].pos.h);
+
+    ret = ioctl(e_devmgr_drm_fd, DRM_IOCTL_EXYNOS_IPP_SET_PROPERTY, property);
+    if (ret)
+    {
+        char errbuf[128] = {0,};
+        strerror_r(errno, errbuf, sizeof(errbuf));
+        ERR("failed. (%s)", errbuf);
+        return -1;
+    }
+
+    DBG("success. prop_id(%d) ", property->prop_id);
+
+    return property->prop_id;
+}
+
+static Eina_Bool
+_drm_ipp_queue(struct drm_exynos_ipp_queue_buf *buf)
+{
+    int ret = 0;
+
+    EINA_SAFETY_ON_NULL_RETURN_VAL(buf, EINA_FALSE);
+
+    DBG("prop_id(%d) ops_id(%d) ctrl(%d) id(%d) handles(%x %x %x). ",
+        buf->prop_id, buf->ops_id, buf->buf_type, buf->buf_id,
+        buf->handle[0], buf->handle[1], buf->handle[2]);
+
+    ret = ioctl(e_devmgr_drm_fd, DRM_IOCTL_EXYNOS_IPP_QUEUE_BUF, buf);
+    if (ret)
+    {
+        char errbuf[128] = {0,};
+        strerror_r(errno, errbuf, sizeof(errbuf));
+        ERR("failed. prop_id(%d) op(%d) buf(%d) id(%d). (%s)",
+            buf->prop_id, buf->ops_id, buf->buf_type, buf->buf_id, errbuf);
+        return EINA_FALSE;
+    }
+
+    DBG("success. prop_id(%d) ", buf->prop_id);
+
+    return EINA_TRUE;
+}
+
+static Eina_Bool
+_drm_ipp_cmd(struct drm_exynos_ipp_cmd_ctrl *ctrl)
+{
+   int ret = 0;
+
+   EINA_SAFETY_ON_NULL_RETURN_VAL(ctrl, EINA_FALSE);
+
+   DBG("prop_id(%d) ctrl(%d). ", ctrl->prop_id, ctrl->ctrl);
+
+   ret = ioctl(e_devmgr_drm_fd, DRM_IOCTL_EXYNOS_IPP_CMD_CTRL, ctrl);
+   if (ret)
+     {
+        char errbuf[128] = {0,};
+        strerror_r(errno, errbuf, sizeof(errbuf));
+        ERR("failed. prop_id(%d) ctrl(%d). (%s)", ctrl->prop_id, ctrl->ctrl, errbuf);
+        return EINA_FALSE;
+     }
+
+   DBG("success. prop_id(%d) ", ctrl->prop_id);
+
+   return EINA_TRUE;
+}
+
+static int
+_drm_ipp_handler(struct drm_event *event)
+{
+   struct drm_exynos_ipp_event *ipp = (struct drm_exynos_ipp_event *)event;
+
+   if (event->type != DRM_EXYNOS_IPP_EVENT)
+      return -1;
+
+   _e_devmgr_cvt_ipp_handler(ipp->prop_id, ipp->buf_id, ipp->tv_sec, ipp->tv_usec,
+                             (void *)((unsigned long)ipp->user_data));
+
+   return 0;
 }
 
 static void
@@ -250,7 +349,7 @@ _e_devmgr_cvt_queue(E_Devmgr_Cvt *cvt, E_Devmgr_CvtBuf *cbuf)
    for (i = 0; i < EXYNOS_DRM_PLANAR_MAX; i++)
      buf.handle[i] = (__u32)cbuf->handles[i];
 
-   if (!e_devicemgr_drm_ipp_queue(&buf))
+   if (!_drm_ipp_queue(&buf))
      {
         set_mbuf_converting(cbuf->mbuf, cvt, EINA_FALSE);
         return EINA_FALSE;
@@ -299,7 +398,7 @@ _e_devmgr_cvt_dequeue(E_Devmgr_Cvt *cvt, E_Devmgr_CvtBuf *cbuf)
    for (i = 0; i < EXYNOS_DRM_PLANAR_MAX; i++)
      buf.handle[i] = (__u32)cbuf->handles[i];
 
-   if (!e_devicemgr_drm_ipp_queue(&buf))
+   if (!_drm_ipp_queue(&buf))
      return;
 }
 
@@ -380,7 +479,7 @@ _e_devmgr_cvt_stop(E_Devmgr_Cvt *cvt)
    ctrl.prop_id = cvt->prop_id;
    ctrl.ctrl = IPP_CTRL_STOP;
 
-   e_devicemgr_drm_ipp_cmd(&ctrl);
+   _drm_ipp_cmd(&ctrl);
 
    _e_devmgr_cvt_dequeued_all(cvt);
 
@@ -591,7 +690,7 @@ e_devmgr_cvt_create(void)
 
    cvt_list = eina_list_append(cvt_list, cvt);
 
-   e_devicemgr_drm_ipp_handler_add(_e_devmgr_cvt_ipp_handler, cvt);
+   drmAddUserHandler(e_devmgr_drm_fd, _drm_ipp_handler);
 
    return cvt;
 }
@@ -614,7 +713,7 @@ e_devmgr_cvt_destroy(E_Devmgr_Cvt *cvt)
    if (cvt->copy_mbuf)
      e_devmgr_buffer_unref(cvt->copy_mbuf);
 
-   e_devicemgr_drm_ipp_handler_del(_e_devmgr_cvt_ipp_handler, cvt);
+   drmRemoveUserHandler(e_devmgr_drm_fd, _drm_ipp_handler);
 
    DBG("destroy: cvt(%p)", cvt);
 
@@ -634,7 +733,7 @@ e_devmgr_cvt_pause(E_Devmgr_Cvt *cvt)
    ctrl.prop_id = cvt->prop_id;
    ctrl.ctrl = IPP_CTRL_PAUSE;
 
-   if (!e_devicemgr_drm_ipp_cmd(&ctrl))
+   if (!_drm_ipp_cmd(&ctrl))
      return EINA_FALSE;
 
    cvt->paused = EINA_TRUE;
@@ -685,7 +784,7 @@ e_devmgr_cvt_property_set(E_Devmgr_Cvt *cvt, E_Devmgr_Cvt_Prop *src, E_Devmgr_Cv
    //    property.protect = dst->secure;
    property.range = dst->csc_range;
 
-   cvt->prop_id = e_devicemgr_drm_ipp_set(&property);
+   cvt->prop_id = _drm_ipp_set(&property);
    EINA_SAFETY_ON_FALSE_RETURN_VAL(cvt->prop_id >= 0, EINA_FALSE);
 
    return EINA_TRUE;
@@ -810,7 +909,7 @@ e_devmgr_cvt_convert(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst)
         struct drm_exynos_ipp_cmd_ctrl ctrl = {0,};
         ctrl.prop_id = cvt->prop_id;
         ctrl.ctrl = IPP_CTRL_PLAY;
-        if (!e_devicemgr_drm_ipp_cmd(&ctrl))
+        if (!_drm_ipp_cmd(&ctrl))
             goto fail_cmd;
         DBG("start: cvt(%p) prop_id(%d)", cvt, ctrl.prop_id);
         cvt->started = EINA_TRUE;
@@ -820,7 +919,7 @@ e_devmgr_cvt_convert(E_Devmgr_Cvt *cvt, E_Devmgr_Buf *src, E_Devmgr_Buf *dst)
         struct drm_exynos_ipp_cmd_ctrl ctrl = {0,};
         ctrl.prop_id = cvt->prop_id;
         ctrl.ctrl = IPP_CTRL_RESUME;
-        if (!e_devicemgr_drm_ipp_cmd(&ctrl))
+        if (!_drm_ipp_cmd(&ctrl))
           goto fail_cmd;
         DBG("resume: cvt(%p) prop_id(%d)", cvt, ctrl.prop_id);
         cvt->paused = EINA_FALSE;
