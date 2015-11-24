@@ -30,7 +30,6 @@ typedef struct _E_Mirror
 
    /* vblank info */
    int pipe;
-   uint next_msc;
    int per_vblank;
    Eina_Bool wait_vblank;
 
@@ -69,7 +68,7 @@ static uint mirror_format_table[] =
 
 static void _e_tz_screenmirror_destroy(E_Mirror *mirror);
 static void _e_tz_screenmirror_buffer_dequeue(E_Mirror_Buffer *buffer);
-static void _e_tz_screenmirror_vblank_handler(uint sequence, uint tv_sec, uint tv_usec, void *data);
+static void _e_tz_screenmirror_vblank_handler(void *data);
 
 static void
 _e_tz_screenmirror_center_rect (int src_w, int src_h, int dst_w, int dst_h, Eina_Rectangle *fit)
@@ -129,7 +128,7 @@ _e_tz_screenmirror_cb_timeout(void *data)
 {
    E_Mirror *mirror = data;
 
-   _e_tz_screenmirror_vblank_handler(0, 0, 0, (void*)mirror);
+   _e_tz_screenmirror_vblank_handler((void*)mirror);
 
    return ECORE_CALLBACK_RENEW;
 }
@@ -137,8 +136,6 @@ _e_tz_screenmirror_cb_timeout(void *data)
 static Eina_Bool
 _e_tz_screenmirror_watch_vblank(E_Mirror *mirror)
 {
-   uint curr_msc;
-
     /* If not DPMS_ON, we call vblank handler directly to dump screen */
    if (e_devicemgr_dpms_get(mirror->drm_output))
      {
@@ -158,24 +155,12 @@ _e_tz_screenmirror_watch_vblank(E_Mirror *mirror)
    if (mirror->wait_vblank)
      return EINA_TRUE;
 
-   if (!e_devicemgr_drm_get_cur_msc(mirror->pipe, &curr_msc))
+   if (!ecore_drm_output_wait_vblank(mirror->drm_output, mirror->per_vblank,
+                                     _e_tz_screenmirror_vblank_handler, mirror))
      {
-         ERR("failed: e_devicemgr_drm_get_cur_msc");
+         ERR("failed: ecore_drm_output_wait_vblank");
          return EINA_FALSE;
      }
-
-   DBG("next:%u curr:%u", mirror->next_msc, curr_msc);
-
-   if (mirror->next_msc > curr_msc)
-      curr_msc = mirror->next_msc;
-
-   if (!e_devicemgr_drm_wait_vblank(mirror->pipe, &curr_msc, mirror))
-     {
-         ERR("failed: e_devicemgr_drm_wait_vblank");
-         return EINA_FALSE;
-     }
-
-   mirror->next_msc = curr_msc + mirror->per_vblank;
 
    mirror->wait_vblank = EINA_TRUE;
 
@@ -530,12 +515,10 @@ fail_get:
 }
 
 static void
-_e_tz_screenmirror_vblank_handler(uint sequence, uint tv_sec, uint tv_usec, void *data)
+_e_tz_screenmirror_vblank_handler(void *data)
 {
    E_Mirror *mirror = data;
    E_Mirror_Buffer *buffer;
-
-   DBG("seq: %u", sequence);
 
    mirror->wait_vblank = EINA_FALSE;
 
@@ -627,8 +610,6 @@ _e_tz_screenmirror_create(struct wl_client *client, struct wl_resource *shooter_
    eina_list_free(devs);
    EINA_SAFETY_ON_NULL_GOTO(mirror->drm_output, fail_create);
 
-   e_devicemgr_drm_vblank_handler_add(_e_tz_screenmirror_vblank_handler, mirror);
-
    mirror->client_destroy_listener.notify = _e_tz_screenmirror_cb_client_destroy;
    wl_client_add_destroy_listener(client, &mirror->client_destroy_listener);
 
@@ -660,8 +641,6 @@ _e_tz_screenmirror_destroy(E_Mirror *mirror)
    wl_resource_set_destructor(mirror->resource, NULL);
 
    _e_tz_screenmirror_cvt_destroy(mirror);
-
-   e_devicemgr_drm_vblank_handler_del(_e_tz_screenmirror_vblank_handler, mirror);
 
    EINA_LIST_FOREACH_SAFE(mirror->buffer_queue, l, ll, buffer)
      _e_tz_screenmirror_buffer_dequeue(buffer);

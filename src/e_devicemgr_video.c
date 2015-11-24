@@ -199,6 +199,55 @@ find_video_from_ec(E_Client *ec)
    return NULL;
 }
 
+static int
+_e_video_set_property(unsigned int obj_id, unsigned int obj_type,
+                      const char *prop_name, unsigned int value)
+{
+   drmModeObjectPropertiesPtr props = NULL;
+   unsigned int i;
+
+   EINA_SAFETY_ON_FALSE_RETURN_VAL(obj_id > 0, 0);
+   EINA_SAFETY_ON_FALSE_RETURN_VAL(obj_type > 0, 0);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(prop_name, 0);
+
+   props = drmModeObjectGetProperties(e_devmgr_drm_fd, obj_id, obj_type);
+   if (!props)
+     {
+        ERR("error: drmModeObjectGetProperties. (%m)");
+        return 0;
+     }
+   for (i = 0; i < props->count_props; i++)
+     {
+        drmModePropertyPtr prop = drmModeGetProperty(e_devmgr_drm_fd, props->props[i]);
+        int ret;
+        if (!prop)
+          {
+             ERR("error: drmModeGetProperty. (%m)");
+             drmModeFreeObjectProperties(props);
+             return 0;
+          }
+        if (!strcmp(prop->name, prop_name))
+          {
+             ret = drmModeObjectSetProperty(e_devmgr_drm_fd, obj_id, obj_type, prop->prop_id, value);
+             if (ret < 0)
+               {
+                  ERR("error: drmModeObjectSetProperty. (%m)");
+                  drmModeFreeProperty(prop);
+                  drmModeFreeObjectProperties(props);
+                  return 0;
+               }
+             drmModeFreeProperty(prop);
+             drmModeFreeObjectProperties(props);
+
+             return 1;
+          }
+        drmModeFreeProperty(prop);
+     }
+
+   ERR("error: drm set property.");
+   drmModeFreeObjectProperties(props);
+   return 0;
+}
 static void
 _e_video_input_buffer_cb_destroy(E_Devmgr_Buf *mbuf, void *data)
 {
@@ -521,7 +570,7 @@ _e_video_plane_info_get(E_Video *video)
          zpos = 1;
        EINA_SAFETY_ON_FALSE_GOTO(zpos >= 0, failed);
 
-       if (!e_devicemgr_drm_set_property(plane_id, DRM_MODE_OBJECT_PLANE, "zpos", zpos))
+       if (!_e_video_set_property(plane_id, DRM_MODE_OBJECT_PLANE, "zpos", zpos))
          goto failed;
      }
 
@@ -903,8 +952,7 @@ _e_video_cvt_configure(E_Video *video, E_Devmgr_Buf *cvt_buffer)
 }
 
 static void
-_e_video_vblank_handler(unsigned int sequence,
-                        unsigned int tv_sec, unsigned int tv_usec, void *data)
+_e_video_vblank_handler(void *data)
 {
    E_Video *video = data;
    E_Video_Fb *vfb;
@@ -939,31 +987,21 @@ _e_video_vblank_handler(unsigned int sequence,
 static void
 _e_video_wait_vblank(E_Video *video)
 {
-   uint target_msc;
-
     /* If not DPMS_ON, we call vblank handler directory to do post-process
      * for video frame buffer handling.
      */
    if (e_devicemgr_dpms_get(video->drm_output))
      {
-        _e_video_vblank_handler(0, 0, 0, (void*)video);
+        _e_video_vblank_handler((void*)video);
         return;
      }
 
    if (video->wait_vblank) return;
    video->wait_vblank = EINA_TRUE;
 
-   if (!e_devicemgr_drm_get_cur_msc(video->pipe, &target_msc))
+   if (!ecore_drm_output_wait_vblank(video->drm_output, 1, _e_video_vblank_handler, video))
      {
-         VER("failed: e_devicemgr_drm_get_cur_msc");
-         return;
-     }
-
-   target_msc++;
-
-   if (!e_devicemgr_drm_wait_vblank(video->pipe, &target_msc, video))
-     {
-         VER("failed: e_devicemgr_drm_wait_vblank");
+         VER("failed: ecore_drm_output_wait_vblank");
          return;
      }
 }
@@ -1024,8 +1062,6 @@ _e_video_create(E_Client *ec)
 
    video_list = eina_list_append(video_list, video);
 
-   e_devicemgr_drm_vblank_handler_add(_e_video_vblank_handler, video);
-
    video->client_destroy_listener.notify = _e_video_cb_client_destroy;
    wl_client_add_destroy_listener(client, &video->client_destroy_listener);
 
@@ -1078,8 +1114,6 @@ _e_video_destroy(E_Video *video)
 
    EINA_LIST_FOREACH_SAFE(video->fake_buffer_list, l, ll, mbuf)
      e_devmgr_buffer_unref(mbuf);
-
-   e_devicemgr_drm_vblank_handler_del(_e_video_vblank_handler, video);
 
    video_list = eina_list_remove(video_list, video);
 
