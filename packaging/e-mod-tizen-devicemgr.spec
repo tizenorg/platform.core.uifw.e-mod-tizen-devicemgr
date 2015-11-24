@@ -2,7 +2,7 @@
 %bcond_with wayland
 
 Name: e-mod-tizen-devicemgr
-Version: 0.0.8
+Version: 0.0.9
 Release: 1
 Summary: The devicemgr for enlightenment modules
 URL: http://www.enlightenment.org
