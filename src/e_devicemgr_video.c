@@ -25,10 +25,11 @@ typedef struct _E_Video_Fb
 
 struct _E_Video
 {
+   struct wl_resource *video_object;
+   struct wl_resource *surface;
+
    E_Client *ec;
    Ecore_Window window;
-
-   struct wl_listener client_destroy_listener;
 
    /* input info */
    tbm_format tbmfmt;
@@ -187,13 +188,13 @@ buffer_transform(int width, int height, uint32_t transform, int32_t scale,
 }
 
 static E_Video*
-find_video_from_ec(E_Client *ec)
+find_video_with_surface(struct wl_resource *surface)
 {
    E_Video *video;
    Eina_List *l;
    EINA_LIST_FOREACH(video_list, l, video)
      {
-        if (video->ec == ec)
+        if (video->surface == surface)
           return video;
      }
    return NULL;
@@ -492,6 +493,8 @@ _e_video_plane_info_get(E_Video *video)
    uint connector_type = 0;
    int i, j;
 
+   EINA_SAFETY_ON_NULL_RETURN_VAL(video->ec, EINA_FALSE);
+
    /* get crtc_id */
    mode_res = drmModeGetResources(e_devmgr_drm_fd);
    EINA_SAFETY_ON_NULL_RETURN_VAL(mode_res, EINA_FALSE);
@@ -601,6 +604,8 @@ _e_video_geometry_cal_viewport(E_Video *video)
    E_Comp_Wl_Buffer *comp_buffer;
    tbm_surface_h tbm_surf;
    uint32_t size = 0, offset = 0, pitch = 0;
+
+   EINA_SAFETY_ON_NULL_RETURN_VAL(ec, EINA_FALSE);
 
    comp_buffer = e_pixmap_resource_get(video->ec->pixmap);
    EINA_SAFETY_ON_NULL_RETURN_VAL(comp_buffer, EINA_FALSE);
@@ -724,6 +729,7 @@ _e_video_geometry_cal_map(E_Video *video)
    const Evas_Map *m;
    Evas_Coord x1, x2, y1, y2;
 
+   EINA_SAFETY_ON_NULL_RETURN(ec);
    EINA_SAFETY_ON_NULL_RETURN(video->ec->frame);
 
    m = evas_object_map_get(ec->frame);
@@ -1007,14 +1013,6 @@ _e_video_wait_vblank(E_Video *video)
 }
 
 static void
-_e_video_cb_client_destroy(struct wl_listener *listener, void *data)
-{
-   E_Video *video = container_of(listener, E_Video, client_destroy_listener);
-
-   _e_video_destroy(video);
-}
-
-static void
 _e_video_evas_cb_move(void *data, Evas *e EINA_UNUSED, Evas_Object *obj EINA_UNUSED, void *event_info EINA_UNUSED)
 {
    E_Video *video;
@@ -1030,16 +1028,17 @@ _e_video_evas_cb_move(void *data, Evas *e EINA_UNUSED, Evas_Object *obj EINA_UNU
 }
 
 static E_Video*
-_e_video_create(E_Client *ec)
+_e_video_create(struct wl_resource *video_object, struct wl_resource *surface)
 {
    E_Video *video = NULL;
+   E_Pixmap *ep;
    E_Comp_Wl_Client_Data *cdata;
    struct wl_client *client;
 
-   EINA_SAFETY_ON_NULL_RETURN_VAL(ec, NULL);
-   EINA_SAFETY_ON_NULL_RETURN_VAL(ec->frame, NULL);
+   ep = wl_resource_get_user_data(surface);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(ep, NULL);
 
-   cdata = e_pixmap_cdata_get(ec->pixmap);
+   cdata = e_pixmap_cdata_get(ep);
    EINA_SAFETY_ON_NULL_RETURN_VAL(cdata, NULL);
 
    client = wl_resource_get_client(cdata->wl_surface);
@@ -1048,26 +1047,37 @@ _e_video_create(E_Client *ec)
    video = calloc(1, sizeof *video);
    EINA_SAFETY_ON_NULL_RETURN_VAL(video, NULL);
 
+   video->video_object = video_object;
+   video->surface = surface;
+   cdata->video_client = EINA_TRUE;
+
+   video_list = eina_list_append(video_list, video);
+
+   return video;
+}
+
+static Eina_Bool
+_e_video_prepare(E_Video *video, E_Client *ec)
+{
+   EINA_SAFETY_ON_NULL_RETURN_VAL(ec, EINA_FALSE);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(ec->frame, EINA_FALSE);
+
    video->ec = ec;
    video->window = e_client_util_win_get(ec);
+
+   ec->comp_data->video_client = EINA_TRUE;
 
    _e_video_format_info_get(video);
 
    if (!_e_video_plane_info_get(video))
      {
         VER("failed to find crtc & plane");
-        _e_video_destroy(video);
-        return NULL;
+        return EINA_FALSE;
      }
-
-   video_list = eina_list_append(video_list, video);
-
-   video->client_destroy_listener.notify = _e_video_cb_client_destroy;
-   wl_client_add_destroy_listener(client, &video->client_destroy_listener);
 
    evas_object_event_callback_add(ec->frame, EVAS_CALLBACK_MOVE, _e_video_evas_cb_move, video);
 
-   return video;
+   return EINA_TRUE;
 }
 
 static void
@@ -1080,14 +1090,10 @@ _e_video_destroy(E_Video *video)
    if (!video)
       return;
 
+   wl_resource_set_destructor(video->video_object, NULL);
+
    if (video->ec && video->ec->frame)
      evas_object_event_callback_del(video->ec->frame, EVAS_CALLBACK_MOVE, _e_video_evas_cb_move);
-
-   if (video->client_destroy_listener.notify)
-     {
-        wl_list_remove(&video->client_destroy_listener.link);
-        video->client_destroy_listener.notify = NULL;
-     }
 
    /* hide video plane first */
    _e_video_frame_buffer_show(video, NULL);
@@ -1134,6 +1140,8 @@ _e_video_render(E_Video *video, Eina_Bool fake)
    E_Devmgr_Buf *cvt_buffer = NULL;
    E_Devmgr_Buf *input_buffer = NULL;
 
+   EINA_SAFETY_ON_NULL_RETURN(video->ec);
+
    video->need_render = EINA_FALSE;
 
    /* get geometry information with buffer scale, transform and viewport. */
@@ -1144,8 +1152,6 @@ _e_video_render(E_Video *video, Eina_Bool fake)
 
    comp_buffer = e_pixmap_resource_get(video->ec->pixmap);
    EINA_SAFETY_ON_NULL_RETURN(comp_buffer);
-   EINA_SAFETY_ON_NULL_RETURN(comp_buffer->resource);
-   EINA_SAFETY_ON_FALSE_RETURN(comp_buffer->type == E_COMP_WL_BUFFER_TYPE_TBM);
 
    if (fake)
      {
@@ -1251,10 +1257,11 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
    E_Video *video;
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(ev, ECORE_CALLBACK_PASS_ON);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(ev->ec, ECORE_CALLBACK_PASS_ON);
 
    ec = ev->ec;
 
-   if (!ec || !ec->pixmap) return ECORE_CALLBACK_PASS_ON;
+   if (!ec->pixmap) return ECORE_CALLBACK_PASS_ON;
 
    comp_buffer = e_pixmap_resource_get(ec->pixmap);
 
@@ -1264,16 +1271,13 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
    if (!comp_buffer) return ECORE_CALLBACK_PASS_ON;
 
    /* not interested in other buffer type */
-   if (comp_buffer->type != E_COMP_WL_BUFFER_TYPE_TBM)
+   if (!wayland_tbm_server_get_surface(NULL, comp_buffer->resource))
       return ECORE_CALLBACK_PASS_ON;
 
    DBG("======================================");
-   video = find_video_from_ec(ec);
-   if (!video)
-     {
-        video = _e_video_create(ec);
-        EINA_SAFETY_ON_NULL_RETURN_VAL(video, ECORE_CALLBACK_PASS_ON);
-     }
+   video = find_video_with_surface(ec->comp_data->surface);
+   if (!video->ec && !_e_video_prepare(video, ec))
+      return ECORE_CALLBACK_PASS_ON;
 
    _e_video_render(video, EINA_FALSE);
    DBG("======================================.");
@@ -1285,13 +1289,91 @@ static Eina_Bool
 _e_video_cb_ec_remove(void *data, int type, void *event)
 {
    E_Event_Client *ev = event;
+   E_Client *ec;
+   E_Video *video;
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(ev, ECORE_CALLBACK_PASS_ON);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(ev->ec, ECORE_CALLBACK_PASS_ON);
 
-   _e_video_destroy(find_video_from_ec(ev->ec));
+   ec = ev->ec;
+   if (!ec->comp_data)
+      return ECORE_CALLBACK_PASS_ON;
+
+   video = find_video_with_surface(ec->comp_data->surface);
+
+   _e_video_destroy(video);
 
    return ECORE_CALLBACK_PASS_ON;
 }
+
+static void
+_e_devicemgr_video_object_destroy(struct wl_resource *resource)
+{
+   E_Video *video = wl_resource_get_user_data(resource);
+
+   _e_video_destroy(video);
+}
+
+static void
+_e_devicemgr_video_object_cb_destroy(struct wl_client *client, struct wl_resource *resource)
+{
+   wl_resource_destroy(resource);
+}
+
+static void
+_e_devicemgr_video_object_cb_set_attribute(struct wl_client *client,
+                                           struct wl_resource *resource,
+                                           const char *name,
+                                           int32_t value)
+{
+}
+
+static const struct tizen_video_object_interface _e_devicemgr_video_object_interface =
+{
+   _e_devicemgr_video_object_cb_destroy,
+   _e_devicemgr_video_object_cb_set_attribute,
+};
+
+static void
+_e_devicemgr_video_cb_get_object(struct wl_client *client,
+                                 struct wl_resource *resource,
+                                 uint32_t id,
+                                 struct wl_resource *surface)
+{
+   int version = wl_resource_get_version(resource);
+   E_Video *video = wl_resource_get_user_data(resource);
+   struct wl_resource *res;
+
+   if (video)
+     {
+        wl_resource_post_error(resource,
+                               TIZEN_VIDEO_ERROR_OBJECT_EXISTS,
+                               "a video object for that surface already exists");
+        return;
+     }
+
+   res = wl_resource_create(client, &tizen_video_object_interface, version, id);
+   if (res == NULL)
+     {
+        wl_client_post_no_memory(client);
+        return;
+     }
+
+   if (!(video = _e_video_create(res, surface)))
+     {
+        wl_resource_destroy(res);
+        wl_client_post_no_memory(client);
+        return;
+     }
+
+   wl_resource_set_implementation(res, &_e_devicemgr_video_object_interface,
+                                  video, _e_devicemgr_video_object_destroy);
+}
+
+static const struct tizen_video_interface _e_devicemgr_video_interface =
+{
+   _e_devicemgr_video_cb_get_object
+};
 
 static void
 _e_devicemgr_video_cb_bind(struct wl_client *client, void *data, uint32_t version, uint32_t id)
@@ -1305,6 +1387,8 @@ _e_devicemgr_video_cb_bind(struct wl_client *client, void *data, uint32_t versio
         wl_client_post_no_memory(client);
         return;
      }
+
+   wl_resource_set_implementation(res, &_e_devicemgr_video_interface, NULL, NULL);
 
    for (i = 0; i < NUM_VIDEO_FORMAT; i++)
      tizen_video_send_format(res, video_format_table[i]);
@@ -1359,23 +1443,7 @@ e_devicemgr_video_list_get(void)
 E_Video*
 e_devicemgr_video_get(struct wl_resource *surface_resource)
 {
-   E_Video *video;
-   Eina_List *l;
-
-   EINA_SAFETY_ON_NULL_RETURN_VAL(surface_resource, NULL);
-
-   EINA_LIST_FOREACH(video_list, l, video)
-     {
-        E_Comp_Wl_Client_Data *cdata;
-
-        if (!video->ec) continue;
-        cdata = e_pixmap_cdata_get(video->ec->pixmap);
-        if (!cdata) continue;
-        if (cdata->wl_surface == surface_resource)
-          return video;
-     }
-
-   return NULL;
+   return find_video_with_surface(surface_resource);
 
 }
 
