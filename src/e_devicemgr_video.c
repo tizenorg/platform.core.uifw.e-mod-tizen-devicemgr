@@ -1261,6 +1261,9 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
 
    ec = ev->ec;
 
+   video = find_video_with_surface(ec->comp_data->surface);
+   if (!video) return ECORE_CALLBACK_PASS_ON;
+
    if (!ec->pixmap) return ECORE_CALLBACK_PASS_ON;
 
    comp_buffer = e_pixmap_resource_get(ec->pixmap);
@@ -1275,7 +1278,6 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
       return ECORE_CALLBACK_PASS_ON;
 
    DBG("======================================");
-   video = find_video_with_surface(ec->comp_data->surface);
    if (!video->ec && !_e_video_prepare(video, ec))
       return ECORE_CALLBACK_PASS_ON;
 
