@@ -8,7 +8,7 @@
 #include "e_devicemgr_dpms.h"
 #include "e_devicemgr_screenshooter.h"
 #include "e_devicemgr_video.h"
-#include "e_devicemgr_drm.h"
+#include "e_devicemgr_tdm.h"
 #include "e_devicemgr_embedded_compositor.h"
 #endif
 #include "e_devicemgr_privates.h"
@@ -66,9 +66,9 @@ e_modapi_init(E_Module *m)
         return NULL;
      }
 
-   if (!e_devicemgr_drm_init())
+   if (!e_devicemgr_tdm_init())
      {
-        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_drm_init()..!\n", __FUNCTION__);
+        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_tdm_init()..!\n", __FUNCTION__);
         return NULL;
      }
 
@@ -103,7 +103,7 @@ e_modapi_shutdown(E_Module *m EINA_UNUSED)
    e_devicemgr_dpms_fini();
    e_devicemgr_screenshooter_fini();
    e_devicemgr_video_fini();
-   e_devicemgr_drm_fini();
+   e_devicemgr_tdm_fini();
    e_devicemgr_embedded_compositor_fini();
 #endif
    e_devicemgr_scale_fini();
