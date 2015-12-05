@@ -1,10 +1,8 @@
-#ifndef __E_DEVICEMGR_DRM_H__
-#define __E_DEVICEMGR_DRM_H__
+#ifndef __E_DEVICEMGR_TDM_H__
+#define __E_DEVICEMGR_TDM_H__
 
-#include <drm_fourcc.h>
+#include <tdm.h>
 #include <tbm_bufmgr.h>
-#include <xf86drmMode.h>
-#include <exynos_drm.h>
 #include <tbm_surface.h>
 #include <tbm_surface_internal.h>
 
@@ -23,14 +21,24 @@
 #define ALIGN_TO_8KB(x)     ((((x) + (1 << 13) - 1) >> 13) << 13)
 #define ALIGN_TO_64KB(x)    ((((x) + (1 << 16) - 1) >> 16) << 16)
 
-/* currently tbm_format is same with drm_format */
-#define DRM_FORMAT(tbmfmt)  (tbmfmt)
+typedef struct _E_DevMgr_Display
+{
+   int drm_fd;
+   tbm_bufmgr bufmgr;
+   tdm_display *tdm;
 
-/* securezone memory */
-extern int e_devmgr_drm_fd;
-extern tbm_bufmgr e_devmgr_bufmgr;
+   Eina_Bool pp_available;
+   Eina_Bool capture_available;
+} E_DevMgr_Display;
 
-int e_devicemgr_drm_init(void);
-void e_devicemgr_drm_fini(void);
+extern E_DevMgr_Display *e_devmgr_dpy;
+
+int e_devicemgr_tdm_init(void);
+void e_devicemgr_tdm_fini(void);
+void e_devicemgr_tdm_update(void);
+
+tdm_output *e_devicemgr_tdm_output_get(Ecore_Drm_Output *output);
+tdm_layer *e_devicemgr_tdm_avaiable_video_layer_get(tdm_output *output);
+tdm_layer *e_devicemgr_tdm_avaiable_overlay_layer_get(tdm_output *output);
 
 #endif

@@ -4,8 +4,6 @@
 #include "e_devicemgr_privates.h"
 #include "e_devicemgr_dpms.h"
 
-#include <xf86drmMode.h>
-
 typedef enum _E_Devicemgr_Dpms_Mode
 {
    E_DEVICEMGR_DPMS_MODE_ON      = 0,
