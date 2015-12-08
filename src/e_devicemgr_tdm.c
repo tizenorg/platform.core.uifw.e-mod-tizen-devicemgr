@@ -134,7 +134,7 @@ e_devicemgr_tdm_output_get(Ecore_Drm_Output *output)
    Ecore_Drm_Output *o;
    Eina_List *devs;
    Eina_List *l, *ll;
-   int pipe;
+   int pipe = 0;
 
    if (!output)
       return (tdm_output*)tdm_display_get_output(e_devmgr_dpy->tdm, 1, NULL);
