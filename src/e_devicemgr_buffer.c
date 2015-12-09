@@ -7,10 +7,13 @@
 #include <e.h>
 #include <Ecore_Drm.h>
 #include <pixman.h>
+#include <xf86drm.h>
+#include <xf86drmMode.h>
+#include <exynos_drm.h>
 #include <png.h>
 #include "e_mod_main.h"
 #include "e_devicemgr_privates.h"
-#include "e_devicemgr_tdm.h"
+#include "e_devicemgr_drm.h"
 #include "e_devicemgr_buffer.h"
 
 //#define DEBUG_LIFECYCLE
@@ -143,13 +146,13 @@ _handle_to_bo(uint handle)
    tbm_bo bo;
 
    arg.handle = handle;
-   if (drmIoctl(e_devmgr_dpy->drm_fd, DRM_IOCTL_GEM_FLINK, &arg))
+   if (drmIoctl(e_devmgr_drm_fd, DRM_IOCTL_GEM_FLINK, &arg))
      {
         ERR("failed flink id (gem:%d)\n", handle);
         return NULL;
      }
 
-   bo = tbm_bo_import(e_devmgr_dpy->bufmgr, arg.name);
+   bo = tbm_bo_import(e_devmgr_bufmgr, arg.name);
    if (!bo)
      {
         ERR("failed import (gem:%d, name:%d)\n", handle, arg.name);
@@ -157,6 +160,15 @@ _handle_to_bo(uint handle)
      }
 
    return bo;
+}
+
+static void
+_e_devmgr_buffer_cb_resource_destroy(struct wl_listener *listener, void *data)
+{
+   E_Devmgr_Buf *mbuf = container_of(listener, E_Devmgr_Buf, buffer_destroy_listener);
+
+   mbuf->buffer_destroying = EINA_TRUE;
+   e_devmgr_buffer_free(mbuf);
 }
 
 E_Devmgr_Buf*
@@ -178,6 +190,9 @@ _e_devmgr_buffer_create(struct wl_resource *resource, const char *func)
    mbuf->func = strdup(func);
 
    mbuf->resource = resource;
+   mbuf->buffer_destroy_listener.notify = _e_devmgr_buffer_cb_resource_destroy;
+   wl_resource_add_destroy_listener(resource,
+                                    &mbuf->buffer_destroy_listener);
 
    if ((shm_buffer = wl_shm_buffer_get(resource)))
      {
@@ -373,7 +388,7 @@ _e_devmgr_buffer_alloc(int width, int height, tbm_format tbmfmt, const char *fun
                                    mbuf->pitches, mbuf->offsets, length, &num_plane);
    EINA_SAFETY_ON_FALSE_GOTO(size > 0, alloc_fail);
 
-   bo = tbm_bo_alloc(e_devmgr_dpy->bufmgr, size, TBM_BO_DEFAULT);
+   bo = tbm_bo_alloc(e_devmgr_bufmgr, size, TBM_BO_DEFAULT);
    EINA_SAFETY_ON_NULL_GOTO(bo, alloc_fail);
 
    info.width = width;
@@ -482,9 +497,15 @@ _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func)
 
    MBUF_RETURN_IF_FAIL(_e_devmgr_buffer_valid(mbuf, func));
 
+   if (mbuf->resource)
+     {
+        mbuf->buffer_destroy_listener.notify = NULL;
+        wl_list_remove(&mbuf->buffer_destroy_listener.link);
+     }
+
    EINA_LIST_FOREACH_SAFE(mbuf->free_funcs, l, ll, info)
      {
-        /* call before tmb_bo_unref */
+        /* call before tmb_bo_unref and drmModeRmFB. */
         mbuf->free_funcs = eina_list_remove_list(mbuf->free_funcs, l);
         if (info->func)
           info->func(mbuf, info->data);
@@ -495,10 +516,14 @@ _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func)
      MBUF_RETURN_IF_FAIL(mbuf->ref_cnt == 0);
 
    /* make sure all operation is done */
+   MBUF_RETURN_IF_FAIL(!MBUF_IS_CONVERTING(mbuf));
    MBUF_RETURN_IF_FAIL(mbuf->showing == EINA_FALSE);
 
-   if (mbuf->tdm_buffer)
-      tdm_buffer_unref(mbuf->tdm_buffer);
+   if (mbuf->fb_id > 0)
+     {
+        BDB("fb_id(%d) removed. ", mbuf->fb_id);
+        drmModeRmFB(e_devmgr_drm_fd, mbuf->fb_id);
+     }
 
    if (mbuf->type == TYPE_TBM)
      tbm_surface_internal_unref(mbuf->tbm_surface);
@@ -516,19 +541,26 @@ _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func)
 }
 
 Eina_Bool
-e_devmgr_buffer_prepare_for_tdm(E_Devmgr_Buf *mbuf)
+e_devmgr_buffer_add_fb(E_Devmgr_Buf *mbuf)
 {
-   tdm_error ret;
-
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, EINA_FALSE);
-   EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf->tbm_surface, EINA_FALSE);
 
-   if (mbuf->tdm_buffer)
+   if (mbuf->fb_id > 0)
      return EINA_TRUE;
 
-   mbuf->tdm_buffer = tdm_buffer_create(mbuf->tbm_surface, &ret);
-   if (ret != TDM_ERROR_NONE)
-      return EINA_FALSE;
+   if (drmModeAddFB2(e_devmgr_drm_fd, mbuf->width, mbuf->height, DRM_FORMAT(mbuf->tbmfmt),
+                     mbuf->handles, mbuf->pitches, mbuf->offsets, &mbuf->fb_id, 0))
+     BER("type(%d) %dx%d %c%c%c%c nm(%d,%d,%d) hnd(%d,%d,%d) pitch(%d,%d,%d) offset(%d,%d,%d) ptr(%p,%p,%p)",
+         mbuf->type, mbuf->width, mbuf->height, FOURCC_STR(mbuf->tbmfmt),
+         mbuf->names[0], mbuf->names[1], mbuf->names[2],
+         mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
+         mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
+         mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2],
+         mbuf->ptrs[0], mbuf->ptrs[1], mbuf->ptrs[2]);
+
+   EINA_SAFETY_ON_FALSE_RETURN_VAL(mbuf->fb_id > 0, EINA_FALSE);
+
+   BDB("fb_id(%d)", mbuf->fb_id);
 
    return EINA_TRUE;
 }
@@ -1029,14 +1061,14 @@ e_devmgr_buffer_list_print(void)
    Eina_List *l;
 
    INF("* Devicemgr Buffers:");
-   INF("stamp\tsize\tformat\thandles\tpitches\toffsets\tcreator\tshowing");
+   INF("stamp\tsize\tformat\thandles\tpitches\toffsets\tcreator\tconverting\tshowing");
    EINA_LIST_FOREACH(mbuf_lists, l, mbuf)
      {
-        INF("%d\t%dx%d\t%c%c%c%c\t%d,%d,%d\t%d,%d,%d\t%d,%d,%d\t%s\t%d",
+        INF("%d\t%dx%d\t%c%c%c%c\t%d,%d,%d\t%d,%d,%d\t%d,%d,%d\t%s\t%d\t%d",
             mbuf->stamp, mbuf->width, mbuf->height, FOURCC_STR(mbuf->tbmfmt),
             mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
             mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
             mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2],
-            mbuf->func, mbuf->showing);
+            mbuf->func, MBUF_IS_CONVERTING(mbuf), mbuf->showing);
      }
 }

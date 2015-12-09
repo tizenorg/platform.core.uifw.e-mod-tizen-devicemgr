@@ -28,7 +28,7 @@ Requires: libX11
 
 %if %{with wayland}
 BuildRequires: pkgconfig(libtbm)
-BuildRequires: pkgconfig(libtdm)
+BuildRequires: pkgconfig(libdrm)
 BuildRequires: pkgconfig(libpng)
 BuildRequires: pkgconfig(pixman-1)
 BuildRequires: pkgconfig(wayland-server)
