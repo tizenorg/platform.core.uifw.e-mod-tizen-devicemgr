@@ -1065,6 +1065,8 @@ _e_video_prepare(E_Video *video, E_Client *ec)
    video->ec = ec;
    video->window = e_client_util_win_get(ec);
 
+   VIN("create. wl_surface@%d", wl_resource_get_id(video->surface));
+
    ec->comp_data->video_client = EINA_TRUE;
 
    _e_video_format_info_get(video);
