@@ -1254,6 +1254,7 @@ static Eina_Bool
 _e_video_cb_ec_buffer_change(void *data, int type, void *event)
 {
    E_Client *ec;
+   E_Comp_Wl_Client_Data *cdata;
    E_Event_Client *ev = event;
    E_Comp_Wl_Buffer *comp_buffer;
    E_Video *video;
@@ -1263,7 +1264,10 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
 
    ec = ev->ec;
 
-   video = find_video_with_surface(ec->comp_data->surface);
+   cdata = e_pixmap_cdata_get(ec->pixmap);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(cdata, ECORE_CALLBACK_PASS_ON);
+
+   video = find_video_with_surface(cdata->wl_surface);
    if (!video) return ECORE_CALLBACK_PASS_ON;
 
    if (!ec->pixmap) return ECORE_CALLBACK_PASS_ON;
