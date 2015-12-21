@@ -50,6 +50,7 @@ struct _E_Video
    Eina_Rectangle pp_r;    /* converter dst content rect */
    Eina_List *pp_buffer_list;
    Eina_List *next_buffer;
+   int pp_align;
 
    /* vblank handling */
    Eina_Bool   wait_vblank;
@@ -175,6 +176,37 @@ _e_video_input_buffer_get(E_Video *video, E_Comp_Wl_Buffer *comp_buffer)
 
    mbuf = e_devmgr_buffer_create(comp_buffer->resource);
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
+
+   if (mbuf->width % video->pp_align)
+     {
+        int aligned_width = ROUNDUP(mbuf->width, video->pp_align);
+        E_Devmgr_Buf *temp, *temp2;
+
+        temp = e_devmgr_buffer_alloc(aligned_width, mbuf->height, mbuf->tbmfmt);
+        if (!temp)
+          {
+             e_devmgr_buffer_unref(mbuf);
+             return NULL;
+          }
+
+        VDB("copy mbuf(%d,%dx%d) => mbuf(%d,%dx%d)",
+            MSTAMP(mbuf), mbuf->width, mbuf->height,
+            MSTAMP(temp), temp->width, temp->height);
+
+        e_devmgr_buffer_copy(mbuf, temp);
+        temp2 = mbuf;
+        mbuf = temp;
+        e_devmgr_buffer_unref(temp2);
+
+        if (IS_RGB(mbuf->tbmfmt))
+           video->geo.input_w = mbuf->pitches[0] >> 2;
+        else
+           video->geo.input_w = mbuf->pitches[0];
+#if 0
+        static int i;
+        e_devmgr_buffer_dump(mbuf, "copy", i++, 0);
+#endif
+     }
 
    if (!e_devmgr_buffer_prepare_for_tdm(mbuf))
      {
@@ -882,6 +914,8 @@ _e_video_render(E_Video *video)
      {
         video->pp = tdm_display_create_pp(e_devmgr_dpy->tdm, NULL);
         EINA_SAFETY_ON_NULL_GOTO(video->pp, render_fail);
+
+        tdm_display_get_pp_available_size(e_devmgr_dpy->tdm, NULL, NULL, NULL, NULL, &video->pp_align);
      }
 
    input_buffer = _e_video_input_buffer_get(video, comp_buffer);
