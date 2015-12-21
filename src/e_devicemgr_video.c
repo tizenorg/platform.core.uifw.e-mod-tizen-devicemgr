@@ -59,6 +59,7 @@ struct _E_Video
 
 static Eina_List *video_list;
 
+static void _e_video_set(E_Video *video, E_Client *ec);
 static void _e_video_destroy(E_Video *video);
 static void _e_video_render(E_Video *video);
 static void _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb);
@@ -648,29 +649,11 @@ _e_video_create(struct wl_resource *video_object, struct wl_resource *surface)
    client = wl_resource_get_client(cdata->wl_surface);
    EINA_SAFETY_ON_NULL_RETURN_VAL(client, NULL);
 
-   ec = e_pixmap_client_get(ep);
-   EINA_SAFETY_ON_NULL_RETURN_VAL(ec, NULL);
-   EINA_SAFETY_ON_TRUE_RETURN_VAL(e_object_is_del(E_OBJECT(ec)), NULL);
-
    video = calloc(1, sizeof *video);
    EINA_SAFETY_ON_NULL_RETURN_VAL(video, NULL);
 
    video->video_object = video_object;
    video->surface = surface;
-   video->ec = ec;
-   video->window = e_client_util_win_get(ec);
-
-   video->drm_output = _e_video_drm_output_find(video->ec);
-   EINA_SAFETY_ON_NULL_GOTO(video->drm_output, failed);
-
-   /* TODO: find proper output */
-   video->output = e_devicemgr_tdm_output_get(video->drm_output);
-   EINA_SAFETY_ON_NULL_GOTO(video->output, failed);
-
-   video->layer = e_devicemgr_tdm_avaiable_video_layer_get(video->output);
-   if (!video->layer)
-      video->layer = e_devicemgr_tdm_avaiable_overlay_layer_get(video->output);
-   EINA_SAFETY_ON_NULL_GOTO(video->layer, failed);
 
    VIN("create. wl_surface@%d", wl_resource_get_id(video->surface));
 
@@ -678,10 +661,71 @@ _e_video_create(struct wl_resource *video_object, struct wl_resource *surface)
 
    video_list = eina_list_append(video_list, video);
 
+   ec = e_pixmap_client_get(ep);
+   if (ec)
+      _e_video_set(video, ec);
+
    return video;
-failed:
-   free(video);
-   return NULL;
+}
+
+static void
+_e_video_set(E_Video *video, E_Client *ec)
+{
+   int minw = 0, minh = 0, maxw = 0, maxh = 0, align = 0;
+   int pminw = 0, pminh = 0, pmaxw = 0, pmaxh = 0, palign = 0;
+   int i, count = 0;
+   const tdm_prop *props;
+
+   if (!video || !ec)
+      return;
+
+   if (video->ec)
+     {
+        VWR("already has ec");
+        return;
+     }
+
+   EINA_SAFETY_ON_TRUE_RETURN(e_object_is_del(E_OBJECT(ec)));
+
+   video->ec = ec;
+   video->window = e_client_util_win_get(ec);
+
+   video->drm_output = _e_video_drm_output_find(video->ec);
+   EINA_SAFETY_ON_NULL_RETURN(video->drm_output);
+
+   /* TODO: find proper output */
+   video->output = e_devicemgr_tdm_output_get(video->drm_output);
+   EINA_SAFETY_ON_NULL_RETURN(video->output);
+
+   video->layer = e_devicemgr_tdm_avaiable_video_layer_get(video->output);
+   if (!video->layer)
+      video->layer = e_devicemgr_tdm_avaiable_overlay_layer_get(video->output);
+   EINA_SAFETY_ON_NULL_RETURN(video->layer);
+
+
+   tdm_output_get_available_size(video->output, &minw, &minh, &maxw, &maxh, &align);
+   tdm_display_get_pp_available_size(e_devmgr_dpy->tdm, &pminw, &pminh, &pmaxw, &pmaxh, &palign);
+
+   maxw = (maxw == -1) ? MAXINT : maxw;
+   maxh = (maxh == -1) ? MAXINT : maxh;
+   pmaxw = (pmaxw == -1) ? MAXINT : pmaxw;
+   pmaxh = (pmaxh == -1) ? MAXINT : pmaxh;
+
+   tizen_video_object_send_size(video->video_object,
+                                MAX(minw, pminw), MAX(minh, pminh),
+                                MIN(maxw, pmaxw), MIN(maxh, pmaxh),
+                                lcm(align, palign));
+
+   tdm_layer_get_available_properties(video->layer, &props, &count);
+   for (i = 0; i < count; i++)
+     {
+        tdm_value value;
+        tdm_layer_get_property(video->layer, props[i].id, &value);
+        tizen_video_object_send_attribute(video->video_object, props[i].name, value.u32);
+     }
+
+
+   VIN("prepare. wl_surface@%d", wl_resource_get_id(video->surface));
 }
 
 static void
@@ -951,6 +995,26 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
 }
 
 static Eina_Bool
+_e_video_cb_ec_add(void *data, int type, void *event)
+{
+   E_Event_Client *ev = event;
+   E_Client *ec;
+   E_Video *video;
+
+   EINA_SAFETY_ON_NULL_RETURN_VAL(ev, ECORE_CALLBACK_PASS_ON);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(ev->ec, ECORE_CALLBACK_PASS_ON);
+
+   ec = ev->ec;
+   if (!ec->comp_data) return ECORE_CALLBACK_PASS_ON;
+
+   video = find_video_with_surface(ec->comp_data->surface);
+   if (video)
+      _e_video_set(video, ec);
+
+   return ECORE_CALLBACK_PASS_ON;
+}
+
+static Eina_Bool
 _e_video_cb_ec_remove(void *data, int type, void *event)
 {
    E_Event_Client *ev = event;
@@ -1025,10 +1089,6 @@ _e_devicemgr_video_cb_get_object(struct wl_client *client,
    int version = wl_resource_get_version(resource);
    E_Video *video = wl_resource_get_user_data(resource);
    struct wl_resource *res;
-   int minw = 0, minh = 0, maxw = 0, maxh = 0, align = 0;
-   int pminw = 0, pminh = 0, pmaxw = 0, pmaxh = 0, palign = 0;
-   int i, count = 0;
-   const tdm_prop *props;
 
    if (video)
      {
@@ -1050,27 +1110,6 @@ _e_devicemgr_video_cb_get_object(struct wl_client *client,
         wl_resource_destroy(res);
         wl_client_post_no_memory(client);
         return;
-     }
-
-   tdm_output_get_available_size(video->output, &minw, &minh, &maxw, &maxh, &align);
-   tdm_display_get_pp_available_size(e_devmgr_dpy->tdm, &pminw, &pminh, &pmaxw, &pmaxh, &palign);
-
-   maxw = (maxw == -1) ? MAXINT : maxw;
-   maxh = (maxh == -1) ? MAXINT : maxh;
-   pmaxw = (pmaxw == -1) ? MAXINT : pmaxw;
-   pmaxh = (pmaxh == -1) ? MAXINT : pmaxh;
-
-   tizen_video_object_send_size(res,
-                                MAX(minw, pminw), MAX(minh, pminh),
-                                MIN(maxw, pmaxw), MIN(maxh, pmaxh),
-                                lcm(align, palign));
-
-   tdm_layer_get_available_properties(video->layer, &props, &count);
-   for (i = 0; i < count; i++)
-     {
-        tdm_value value;
-        tdm_layer_get_property(video->layer, props[i].id, &value);
-        tizen_video_object_send_attribute(res, props[i].name, value.u32);
      }
 
    wl_resource_set_implementation(res, &_e_devicemgr_video_object_interface,
@@ -1147,6 +1186,8 @@ e_devicemgr_video_init(void)
 
    E_LIST_HANDLER_APPEND(video_hdlrs, E_EVENT_CLIENT_BUFFER_CHANGE,
                          _e_video_cb_ec_buffer_change, NULL);
+   E_LIST_HANDLER_APPEND(video_hdlrs, E_EVENT_CLIENT_ADD,
+                         _e_video_cb_ec_add, NULL);
    E_LIST_HANDLER_APPEND(video_hdlrs, E_EVENT_CLIENT_REMOVE,
                          _e_video_cb_ec_remove, NULL);
    E_LIST_HANDLER_APPEND(video_hdlrs, E_EVENT_CLIENT_HIDE,
