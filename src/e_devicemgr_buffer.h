@@ -44,9 +44,6 @@ typedef struct _E_Devmgr_Buf
    int names[4];
    void *ptrs[4];
 
-   /* for display on screen */
-   tdm_buffer *tdm_buffer;
-
    /* to avoid reading & write at same time */
    Eina_Bool showing;
 
@@ -77,7 +74,6 @@ typedef void (*MBuf_Free_Func) (E_Devmgr_Buf *mbuf, void *data);
 void      e_devmgr_buffer_free_func_add(E_Devmgr_Buf *mbuf, MBuf_Free_Func func, void *data);
 void      e_devmgr_buffer_free_func_del(E_Devmgr_Buf *mbuf, MBuf_Free_Func func, void *data);
 
-Eina_Bool e_devmgr_buffer_prepare_for_tdm(E_Devmgr_Buf *mbuf);
 void      e_devmgr_buffer_clear(E_Devmgr_Buf *mbuf);
 Eina_Bool e_devmgr_buffer_copy(E_Devmgr_Buf *srcbuf, E_Devmgr_Buf *dstbuf);
 void      e_devmgr_buffer_convert(E_Devmgr_Buf *srcbuf, E_Devmgr_Buf *dstbuf,

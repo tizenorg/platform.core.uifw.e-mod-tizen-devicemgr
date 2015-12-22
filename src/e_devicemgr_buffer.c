@@ -497,9 +497,6 @@ _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func)
    /* make sure all operation is done */
    MBUF_RETURN_IF_FAIL(mbuf->showing == EINA_FALSE);
 
-   if (mbuf->tdm_buffer)
-      tdm_buffer_unref(mbuf->tdm_buffer);
-
    if (mbuf->type == TYPE_TBM)
      tbm_surface_internal_unref(mbuf->tbm_surface);
 
@@ -513,24 +510,6 @@ _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func)
      free(mbuf->func);
 
    free(mbuf);
-}
-
-Eina_Bool
-e_devmgr_buffer_prepare_for_tdm(E_Devmgr_Buf *mbuf)
-{
-   tdm_error ret;
-
-   EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, EINA_FALSE);
-   EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf->tbm_surface, EINA_FALSE);
-
-   if (mbuf->tdm_buffer)
-     return EINA_TRUE;
-
-   mbuf->tdm_buffer = tdm_buffer_create(mbuf->tbm_surface, &ret);
-   if (ret != TDM_ERROR_NONE)
-      return EINA_FALSE;
-
-   return EINA_TRUE;
 }
 
 void

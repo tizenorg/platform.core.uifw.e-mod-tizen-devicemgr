@@ -208,12 +208,6 @@ _e_video_input_buffer_get(E_Video *video, E_Comp_Wl_Buffer *comp_buffer)
 #endif
      }
 
-   if (!e_devmgr_buffer_prepare_for_tdm(mbuf))
-     {
-        e_devmgr_buffer_unref(mbuf);
-        return NULL;
-     }
-
    mbuf->comp_buffer = comp_buffer;
    e_comp_wl_buffer_reference(&mbuf->buffer_ref, mbuf->comp_buffer);
 
@@ -308,12 +302,6 @@ _e_video_pp_buffer_get(E_Video *video, int width, int height)
           {
              mbuf = e_devmgr_buffer_alloc(width, height, TBM_FORMAT_ARGB8888);
              EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
-
-             if (!e_devmgr_buffer_prepare_for_tdm(mbuf))
-               {
-                  e_devmgr_buffer_unref(mbuf);
-                  return NULL;
-               }
 
              e_devmgr_buffer_free_func_add(mbuf, _e_video_pp_buffer_cb_free, video);
              video->pp_buffer_list = eina_list_append(video->pp_buffer_list, mbuf);
@@ -573,7 +561,7 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
    info.transform = vfb->transform;
 
    tdm_layer_set_info(video->layer, &info);
-   tdm_layer_set_buffer(video->layer, vfb->mbuf->tdm_buffer);
+   tdm_layer_set_buffer(video->layer, vfb->mbuf->tbm_surface);
    tdm_output_commit(video->output, 0, NULL, NULL);
 
    VDB("(%dx%d,[%d,%d,%d,%d]=>[%d,%d,%d,%d])",
@@ -840,18 +828,18 @@ _e_video_check_if_pp_needed(E_Video *video)
 }
 
 static void
-_e_video_input_buffer_cb_release(tdm_buffer *buffer, void *user_data)
+_e_video_input_buffer_cb_release(tbm_surface_h surface, void *user_data)
 {
    E_Devmgr_Buf *mbuf = user_data;
 
-   tdm_buffer_remove_release_handler(mbuf->tdm_buffer, _e_video_input_buffer_cb_release, mbuf);
+   tdm_buffer_remove_release_handler(surface, _e_video_input_buffer_cb_release, mbuf);
 
    /* unref input_buffer because we don't need input buffer any more after pp done */
    e_devmgr_buffer_unref(mbuf);
 }
 
 static void
-_e_video_pp_buffer_cb_release(tdm_buffer *buffer, void *user_data)
+_e_video_pp_buffer_cb_release(tbm_surface_h surface, void *user_data)
 {
    E_Video *video = (E_Video*)user_data;
    E_Devmgr_Buf *mbuf;
@@ -859,12 +847,12 @@ _e_video_pp_buffer_cb_release(tdm_buffer *buffer, void *user_data)
 
    EINA_LIST_FOREACH(video->pp_buffer_list, l, mbuf)
      {
-        if (mbuf->tdm_buffer == buffer)
+        if (mbuf->tbm_surface == surface)
            break;
      }
    EINA_SAFETY_ON_NULL_RETURN(mbuf);
 
-   tdm_buffer_remove_release_handler(mbuf->tdm_buffer, _e_video_pp_buffer_cb_release, video);
+   tdm_buffer_remove_release_handler(surface, _e_video_pp_buffer_cb_release, video);
 
    _e_video_buffer_show(video, mbuf, &video->pp_r, 0);
 
@@ -965,12 +953,12 @@ _e_video_render(E_Video *video)
    e_devmgr_buffer_dump(input_buffer, "in", i++, 0);
 #endif
 
-   tdm_buffer_add_release_handler(input_buffer->tdm_buffer,
+   tdm_buffer_add_release_handler(input_buffer->tbm_surface,
                                   _e_video_input_buffer_cb_release, input_buffer);
-   tdm_buffer_add_release_handler(pp_buffer->tdm_buffer,
+   tdm_buffer_add_release_handler(pp_buffer->tbm_surface,
                                   _e_video_pp_buffer_cb_release, video);
 
-   if (tdm_pp_attach(video->pp, input_buffer->tdm_buffer, pp_buffer->tdm_buffer))
+   if (tdm_pp_attach(video->pp, input_buffer->tbm_surface, pp_buffer->tbm_surface))
      goto render_fail;
 
    if (tdm_pp_commit(video->pp))

@@ -201,12 +201,6 @@ _e_tz_screenmirror_ui_buffer_get(E_Mirror *mirror)
    mbuf = e_devmgr_buffer_create_hnd(handle, w, h);
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
-   if (!e_devmgr_buffer_prepare_for_tdm(mbuf))
-     {
-        e_devmgr_buffer_unref(mbuf);
-        return NULL;
-     }
-
    e_devmgr_buffer_free_func_add(mbuf, _e_tz_screenmirror_ui_buffer_cb_free, mirror);
    mirror->ui_buffer_list = eina_list_append(mirror->ui_buffer_list, mbuf);
 
@@ -310,18 +304,18 @@ _e_tz_screenmirror_shm_dump(E_Mirror_Buffer *buffer)
 }
 
 static void
-_e_tz_screenmirror_ui_buffer_release_cb(tdm_buffer *buffer, void *user_data)
+_e_tz_screenmirror_ui_buffer_release_cb(tbm_surface_h surface, void *user_data)
 {
    E_Devmgr_Buf *mbuf = user_data;
-   tdm_buffer_remove_release_handler(mbuf->tdm_buffer,
+   tdm_buffer_remove_release_handler(surface,
                                      _e_tz_screenmirror_ui_buffer_release_cb, mbuf);
 }
 
 static void
-_e_tz_screenmirror_buffer_release_cb(tdm_buffer *buf, void *user_data)
+_e_tz_screenmirror_buffer_release_cb(tbm_surface_h surface, void *user_data)
 {
    E_Mirror_Buffer *buffer = user_data;
-   tdm_buffer_remove_release_handler(buffer->mbuf->tdm_buffer,
+   tdm_buffer_remove_release_handler(surface,
                                      _e_tz_screenmirror_buffer_release_cb, buffer);
 
    _e_tz_screenmirror_buffer_dequeue(buffer);
@@ -366,15 +360,15 @@ _e_tz_screenmirror_drm_dump(E_Mirror_Buffer *buffer)
      if (!_e_tz_screenmirror_pp_create(mirror, ui, dst))
        return EINA_FALSE;
 
-   if (tdm_pp_attach(mirror->pp, ui->tdm_buffer, dst->tdm_buffer))
+   if (tdm_pp_attach(mirror->pp, ui->tbm_surface, dst->tbm_surface))
      return EINA_FALSE;
 
    if (tdm_pp_commit(mirror->pp))
      return EINA_FALSE;
 
-   tdm_buffer_add_release_handler(ui->tdm_buffer,
+   tdm_buffer_add_release_handler(ui->tbm_surface,
                                   _e_tz_screenmirror_ui_buffer_release_cb, ui);
-   tdm_buffer_add_release_handler(dst->tdm_buffer,
+   tdm_buffer_add_release_handler(dst->tbm_surface,
                                   _e_tz_screenmirror_buffer_release_cb, buffer);
 
    buffer->in_use = EINA_TRUE;
@@ -502,14 +496,6 @@ _e_tz_screenmirror_buffer_get(E_Mirror *mirror, struct wl_resource *resource)
 
    buffer->mbuf = e_devmgr_buffer_create(resource);
    EINA_SAFETY_ON_NULL_GOTO(buffer->mbuf, fail_get);
-
-   if (buffer->mbuf->type == TYPE_TBM)
-      if (!e_devmgr_buffer_prepare_for_tdm(buffer->mbuf))
-        {
-           e_devmgr_buffer_unref(buffer->mbuf);
-           free(buffer);
-           return NULL;
-        }
 
    buffer->mirror = mirror;
 
