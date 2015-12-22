@@ -6,7 +6,8 @@
 #include <e_comp_wl_tbm.h>
 #include <wayland-tbm-server.h>
 #include <tizen-extension-server-protocol.h>
-#include "e_devicemgr_drm.h"
+#include <tdm.h>
+#include "e_devicemgr_tdm.h"
 #include "e_devicemgr_privates.h"
 
 typedef enum _E_Devmgr_Buf_Type
@@ -26,7 +27,6 @@ typedef struct _E_Devmgr_Buf
 
    /* to manage wl_resource */
    struct wl_resource *resource;
-   struct wl_listener buffer_destroy_listener;
    Eina_Bool buffer_destroying;
 
    E_Devmgr_Buf_Type type;
@@ -44,17 +44,14 @@ typedef struct _E_Devmgr_Buf
    int names[4];
    void *ptrs[4];
 
-   /* for display on screen */
-   uint fb_id;
-
    /* to avoid reading & write at same time */
-   Eina_List *convert_info;
    Eina_Bool showing;
 
    Eina_List *free_funcs;
 
-   /* for debugging */
+   /* for wl_buffer.release event */
    E_Comp_Wl_Buffer *comp_buffer;
+   E_Comp_Wl_Buffer_Ref buffer_ref;
    uint put_time;
 } E_Devmgr_Buf;
 
@@ -72,13 +69,11 @@ Eina_Bool     _e_devmgr_buffer_valid      (E_Devmgr_Buf *mbuf, const char *func)
 #define e_devmgr_buffer_unref(b)          _e_devmgr_buffer_unref(b,__FUNCTION__)
 #define MBUF_IS_VALID(b)                  _e_devmgr_buffer_valid(b,__FUNCTION__)
 #define MSTAMP(b)                         ((b)?(b)->stamp:0)
-#define MBUF_IS_CONVERTING(b)             (eina_list_count((b)->convert_info)?EINA_TRUE:EINA_FALSE)
 
 typedef void (*MBuf_Free_Func) (E_Devmgr_Buf *mbuf, void *data);
 void      e_devmgr_buffer_free_func_add(E_Devmgr_Buf *mbuf, MBuf_Free_Func func, void *data);
 void      e_devmgr_buffer_free_func_del(E_Devmgr_Buf *mbuf, MBuf_Free_Func func, void *data);
 
-Eina_Bool e_devmgr_buffer_add_fb(E_Devmgr_Buf *mbuf);
 void      e_devmgr_buffer_clear(E_Devmgr_Buf *mbuf);
 Eina_Bool e_devmgr_buffer_copy(E_Devmgr_Buf *srcbuf, E_Devmgr_Buf *dstbuf);
 void      e_devmgr_buffer_convert(E_Devmgr_Buf *srcbuf, E_Devmgr_Buf *dstbuf,

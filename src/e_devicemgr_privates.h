@@ -32,4 +32,14 @@ extern int _log_dom;
 #define DBG(fmt, ARG...)      printf("@@@ [%s:%d] "fmt"\n", __FUNCTION__, __LINE__, ##ARG)
 #endif
 
+#ifdef MIN
+#undef MIN
+#endif
+#define MIN(a,b) (((a) < (b)) ? (a) : (b))
+
+#ifdef MAX
+#undef MAX
+#endif
+#define MAX(a,b) (((a) < (b)) ? (b) : (a))
+
 #endif//_E_DEVICEMGR_PRIVATE_H_
