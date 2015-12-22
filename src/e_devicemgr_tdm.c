@@ -137,7 +137,7 @@ e_devicemgr_tdm_output_get(Ecore_Drm_Output *output)
    int pipe = 0;
 
    if (!output)
-      return (tdm_output*)tdm_display_get_output(e_devmgr_dpy->tdm, 1, NULL);
+      return tdm_display_get_output(e_devmgr_dpy->tdm, 1, NULL);
 
    devs = eina_list_clone(ecore_drm_devices_get());
    EINA_LIST_FOREACH(devs, l, dev)
@@ -153,7 +153,7 @@ e_devicemgr_tdm_output_get(Ecore_Drm_Output *output)
 found:
    eina_list_free(devs);
 
-   return (tdm_output*)tdm_display_get_output(e_devmgr_dpy->tdm, pipe, NULL);
+   return tdm_display_get_output(e_devmgr_dpy->tdm, pipe, NULL);
 }
 
 tdm_layer*
@@ -166,7 +166,7 @@ e_devicemgr_tdm_avaiable_video_layer_get(tdm_output *output)
    tdm_output_get_layer_count(output, &count);
    for (i = 0; i < count; i++)
      {
-        tdm_layer *layer = (tdm_layer*)tdm_output_get_layer(output, i, NULL);
+        tdm_layer *layer = tdm_output_get_layer(output, i, NULL);
         tdm_layer_capability capabilities = 0;
         EINA_SAFETY_ON_NULL_RETURN_VAL(layer, NULL);
 
@@ -193,7 +193,7 @@ e_devicemgr_tdm_avaiable_overlay_layer_get(tdm_output *output)
    tdm_output_get_layer_count(output, &count);
    for (i = 0; i < count; i++)
      {
-        tdm_layer *layer = (tdm_layer*)tdm_output_get_layer(output, i, NULL);
+        tdm_layer *layer = tdm_output_get_layer(output, i, NULL);
         tdm_layer_capability capabilities = 0;
         EINA_SAFETY_ON_NULL_RETURN_VAL(layer, NULL);
 
