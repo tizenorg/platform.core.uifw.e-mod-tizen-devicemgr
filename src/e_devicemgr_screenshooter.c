@@ -844,7 +844,13 @@ _e_screenshooter_cb_shoot(struct wl_client *client,
      }
 
    _e_tz_screenmirror_buffer_queue(buffer);
-   _e_tz_screenmirror_dump_still(buffer);
+
+   /* in case of shm, we dump only ui framebuffer */
+   if (buffer->mbuf->type == TYPE_SHM)
+     _e_tz_screenmirror_shm_dump(buffer);
+   else
+     _e_tz_screenmirror_dump_still(buffer);
+
    _e_tz_screenmirror_buffer_dequeue(buffer);
    _e_tz_screenmirror_destroy(mirror);
 }
