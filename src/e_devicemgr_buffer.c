@@ -712,9 +712,6 @@ e_devmgr_buffer_convert(E_Devmgr_Buf *srcbuf, E_Devmgr_Buf *dstbuf,
            case 3:
               c = 0, s = 1, ty = -dh;
               break;
-           default:
-              c = 0, s = 0;
-              break;
           }
         pixman_f_transform_translate(&ft, NULL, tx, ty);
         pixman_f_transform_rotate(&ft, NULL, c, s);
