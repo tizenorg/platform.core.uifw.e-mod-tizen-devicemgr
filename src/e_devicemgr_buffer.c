@@ -17,10 +17,10 @@
 
 #define PNG_DEPTH 8
 
-#define BER(fmt,arg...)   ERR("%d: "fmt, mbuf->stamp, ##arg)
-#define BWR(fmt,arg...)   WRN("%d: "fmt, mbuf->stamp, ##arg)
-#define BIN(fmt,arg...)   INF("%d: "fmt, mbuf->stamp, ##arg)
-#define BDB(fmt,arg...)   DBG("%d: "fmt, mbuf->stamp, ##arg)
+#define BER(fmt,arg...)   ERR("%d: "fmt, mbuf ? mbuf->stamp : 0, ##arg)
+#define BWR(fmt,arg...)   WRN("%d: "fmt, mbuf ? mbuf->stamp : 0, ##arg)
+#define BIN(fmt,arg...)   INF("%d: "fmt, mbuf ? mbuf->stamp : 0, ##arg)
+#define BDB(fmt,arg...)   DBG("%d: "fmt, mbuf ? mbuf->stamp : 0, ##arg)
 
 #define MBUF_RETURN_IF_FAIL(cond) \
    {if (!(cond)) { BER("'%s' failed. (%s)", #cond, func); return; }}
