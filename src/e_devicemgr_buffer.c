@@ -373,7 +373,7 @@ _e_devmgr_buffer_alloc(int width, int height, tbm_format tbmfmt, const char *fun
                                    mbuf->pitches, mbuf->offsets, length, &num_plane);
    EINA_SAFETY_ON_FALSE_GOTO(size > 0, alloc_fail);
 
-   bo = tbm_bo_alloc(e_devmgr_dpy->bufmgr, size, TBM_BO_DEFAULT);
+   bo = tbm_bo_alloc(e_devmgr_dpy->bufmgr, size, TBM_BO_SCANOUT);
    EINA_SAFETY_ON_NULL_GOTO(bo, alloc_fail);
 
    info.width = width;
