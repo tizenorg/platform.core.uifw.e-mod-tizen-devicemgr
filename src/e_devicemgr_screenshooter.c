@@ -793,15 +793,8 @@ static const struct tizen_screenshooter_interface _e_tz_screenshooter_interface 
 static void
 _e_tz_screenshooter_cb_bind(struct wl_client *client, void *data, uint32_t version, uint32_t id)
 {
-   E_Comp_Data *cdata;
    struct wl_resource *res;
    int i;
-
-   if (!(cdata = data))
-     {
-        wl_client_post_no_memory(client);
-        return;
-     }
 
    if (!(res = wl_resource_create(client, &tizen_screenshooter_interface, MIN(version, 1), id)))
      {
@@ -810,7 +803,7 @@ _e_tz_screenshooter_cb_bind(struct wl_client *client, void *data, uint32_t versi
         return;
      }
 
-   wl_resource_set_implementation(res, &_e_tz_screenshooter_interface, cdata, NULL);
+   wl_resource_set_implementation(res, &_e_tz_screenshooter_interface, NULL, NULL);
 
    for (i = 0; i < NUM_MIRROR_FORMAT; i++)
      tizen_screenshooter_send_format(res, mirror_format_table[i]);
@@ -870,14 +863,7 @@ static const struct screenshooter_interface _e_screenshooter_interface =
 static void
 _e_screenshooter_cb_bind(struct wl_client *client, void *data, uint32_t version, uint32_t id)
 {
-   E_Comp_Data *cdata;
    struct wl_resource *res;
-
-   if (!(cdata = data))
-     {
-        wl_client_post_no_memory(client);
-        return;
-     }
 
    if (!(res = wl_resource_create(client, &screenshooter_interface, MIN(version, 1), id)))
      {
@@ -886,29 +872,26 @@ _e_screenshooter_cb_bind(struct wl_client *client, void *data, uint32_t version,
         return;
      }
 
-   wl_resource_set_implementation(res, &_e_screenshooter_interface, cdata, NULL);
+   wl_resource_set_implementation(res, &_e_screenshooter_interface, NULL, NULL);
 }
 
 int
 e_devicemgr_screenshooter_init(void)
 {
-   E_Comp_Data *cdata;
-
-   if (!e_comp) return 0;
-   if (!(cdata = e_comp->wl_comp_data)) return 0;
-   if (!cdata->wl.disp) return 0;
+   if (!e_comp_wl) return 0;
+   if (!e_comp_wl->wl.disp) return 0;
 
    /* try to add screenshooter to wayland globals */
-   if (!wl_global_create(cdata->wl.disp, &screenshooter_interface, 1,
-                         cdata, _e_screenshooter_cb_bind))
+   if (!wl_global_create(e_comp_wl->wl.disp, &screenshooter_interface, 1,
+                         NULL, _e_screenshooter_cb_bind))
      {
         ERR("Could not add screenshooter to wayland globals");
         return 0;
      }
 
    /* try to add tizen_screenshooter to wayland globals */
-   if (!wl_global_create(cdata->wl.disp, &tizen_screenshooter_interface, 1,
-                         cdata, _e_tz_screenshooter_cb_bind))
+   if (!wl_global_create(e_comp_wl->wl.disp, &tizen_screenshooter_interface, 1,
+                         NULL, _e_tz_screenshooter_cb_bind))
      {
         ERR("Could not add tizen_screenshooter to wayland globals");
         return 0;

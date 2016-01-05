@@ -685,19 +685,10 @@ static E_Video*
 _e_video_create(struct wl_resource *video_object, struct wl_resource *surface)
 {
    E_Video *video;
-   E_Pixmap *ep;
    E_Client *ec;
-   E_Comp_Wl_Client_Data *cdata;
-   struct wl_client *client;
 
-   ep = wl_resource_get_user_data(surface);
-   EINA_SAFETY_ON_NULL_RETURN_VAL(ep, NULL);
-
-   cdata = e_pixmap_cdata_get(ep);
-   EINA_SAFETY_ON_NULL_RETURN_VAL(cdata, NULL);
-
-   client = wl_resource_get_client(cdata->wl_surface);
-   EINA_SAFETY_ON_NULL_RETURN_VAL(client, NULL);
+   ec = wl_resource_get_user_data(surface);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(ec, NULL);
 
    video = calloc(1, sizeof *video);
    EINA_SAFETY_ON_NULL_RETURN_VAL(video, NULL);
@@ -707,13 +698,11 @@ _e_video_create(struct wl_resource *video_object, struct wl_resource *surface)
 
    VIN("create. wl_surface@%d", wl_resource_get_id(video->surface));
 
-   cdata->video_client = EINA_TRUE;
+   ec->comp_data->video_client = 1;
 
    video_list = eina_list_append(video_list, video);
 
-   ec = e_pixmap_client_get(ep);
-   if (ec)
-      _e_video_set(video, ec);
+   _e_video_set(video, ec);
 
    return video;
 }
@@ -1022,7 +1011,6 @@ static Eina_Bool
 _e_video_cb_ec_buffer_change(void *data, int type, void *event)
 {
    E_Client *ec;
-   E_Comp_Wl_Client_Data *cdata;
    E_Event_Client *ev = event;
    E_Comp_Wl_Buffer *comp_buffer;
    E_Video *video;
@@ -1049,11 +1037,8 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
      }
 #endif
 
-   cdata = e_pixmap_cdata_get(ec->pixmap);
-   EINA_SAFETY_ON_NULL_RETURN_VAL(cdata, ECORE_CALLBACK_PASS_ON);
-
    /* not interested with non video_surface,  */
-   video = find_video_with_surface(cdata->wl_surface);
+   video = find_video_with_surface(ec->comp_data->surface);
    if (!video) return ECORE_CALLBACK_PASS_ON;
 
    /* buffer can be NULL when camera/video's mode changed. Do nothing and
@@ -1252,14 +1237,11 @@ static Eina_List *video_hdlrs;
 int
 e_devicemgr_video_init(void)
 {
-   E_Comp_Data *cdata;
-
-   if (!e_comp) return 0;
-   if (!(cdata = e_comp->wl_comp_data)) return 0;
-   if (!cdata->wl.disp) return 0;
+   if (!e_comp_wl) return 0;
+   if (!e_comp_wl->wl.disp) return 0;
 
    /* try to add tizen_screenshooter to wayland globals */
-   if (!wl_global_create(cdata->wl.disp, &tizen_video_interface, 1,
+   if (!wl_global_create(e_comp_wl->wl.disp, &tizen_video_interface, 1,
                          NULL, _e_devicemgr_video_cb_bind))
      {
         ERR("Could not add tizen_screenshooter to wayland globals");
