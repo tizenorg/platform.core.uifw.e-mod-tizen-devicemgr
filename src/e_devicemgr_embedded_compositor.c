@@ -55,14 +55,11 @@ _e_tizen_embedded_compositor_cb_bind(struct wl_client *client, void *data, uint3
 int
 e_devicemgr_embedded_compositor_init(void)
 {
-   E_Comp_Data *cdata;
-
-   if (!e_comp) return 0;
-   if (!(cdata = e_comp->wl_comp_data)) return 0;
-   if (!cdata->wl.disp) return 0;
+   if (!e_comp_wl) return 0;
+   if (!e_comp_wl->wl.disp) return 0;
 
    /* try to add tizen_embedded_compositor to wayland globals */
-   if (!(e_embedded = wl_global_create(cdata->wl.disp, &tizen_embedded_compositor_interface, 1,
+   if (!(e_embedded = wl_global_create(e_comp_wl->wl.disp, &tizen_embedded_compositor_interface, 1,
                          NULL, _e_tizen_embedded_compositor_cb_bind)))
      {
         ERR("Could not add tizen_embedded_compositor to wayland globals");

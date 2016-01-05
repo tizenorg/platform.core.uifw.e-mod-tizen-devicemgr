@@ -83,6 +83,11 @@ fi
 AC_SUBST(ENLIGHTENMENT_CFLAGS)
 AC_SUBST(ENLIGHTENMENT_LIBS)
 
+# to include e_comp_wl.h
+if test "${have_wayland_only}" != "xno"; then
+	 AC_DEFINE_UNQUOTED([HAVE_WAYLAND],[1],[enable wayland support])
+fi
+
 dnl =======================================================================
 
 release=$(pkg-config --variable=release enlightenment)
