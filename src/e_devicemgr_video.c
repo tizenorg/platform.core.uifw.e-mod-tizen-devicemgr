@@ -170,7 +170,7 @@ _e_video_input_buffer_cb_free(E_Devmgr_Buf *mbuf, void *data)
 }
 
 static E_Devmgr_Buf*
-_e_video_input_buffer_get(E_Video *video, E_Comp_Wl_Buffer *comp_buffer)
+_e_video_input_buffer_get(E_Video *video, E_Comp_Wl_Buffer *comp_buffer, Eina_Bool scanout)
 {
    E_Devmgr_Buf *mbuf;
 
@@ -182,7 +182,7 @@ _e_video_input_buffer_get(E_Video *video, E_Comp_Wl_Buffer *comp_buffer)
         int aligned_width = ROUNDUP(mbuf->width, video->pp_align);
         E_Devmgr_Buf *temp, *temp2;
 
-        temp = e_devmgr_buffer_alloc(aligned_width, mbuf->height, mbuf->tbmfmt);
+        temp = e_devmgr_buffer_alloc(aligned_width, mbuf->height, mbuf->tbmfmt, scanout);
         if (!temp)
           {
              e_devmgr_buffer_unref(mbuf);
@@ -300,7 +300,7 @@ _e_video_pp_buffer_get(E_Video *video, int width, int height)
      {
         for (i = 0; i < BUFFER_MAX_COUNT; i++)
           {
-             mbuf = e_devmgr_buffer_alloc(width, height, TBM_FORMAT_ARGB8888);
+             mbuf = e_devmgr_buffer_alloc(width, height, TBM_FORMAT_ARGB8888, EINA_TRUE);
              EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
              e_devmgr_buffer_free_func_add(mbuf, _e_video_pp_buffer_cb_free, video);
@@ -886,7 +886,7 @@ _e_video_render(E_Video *video)
    if (!_e_video_check_if_pp_needed(video))
      {
         /* 1. non converting case */
-        input_buffer = _e_video_input_buffer_get(video, comp_buffer);
+        input_buffer = _e_video_input_buffer_get(video, comp_buffer, EINA_TRUE);
         EINA_SAFETY_ON_NULL_GOTO(input_buffer, render_fail);
 
         _e_video_buffer_show(video, input_buffer, &video->geo.input_r, video->geo.transform);
@@ -906,7 +906,7 @@ _e_video_render(E_Video *video)
         tdm_display_get_pp_available_size(e_devmgr_dpy->tdm, NULL, NULL, NULL, NULL, &video->pp_align);
      }
 
-   input_buffer = _e_video_input_buffer_get(video, comp_buffer);
+   input_buffer = _e_video_input_buffer_get(video, comp_buffer, EINA_FALSE);
    EINA_SAFETY_ON_NULL_GOTO(input_buffer, render_fail);
 
    pp_buffer = _e_video_pp_buffer_get(video, video->geo.output_r.w, video->geo.output_r.h);
