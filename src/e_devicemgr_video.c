@@ -3,6 +3,8 @@
 #include "e_devicemgr_video.h"
 #include "e_devicemgr_dpms.h"
 
+//#define DUMP_BUFFER
+
 #define BUFFER_MAX_COUNT   3
 #define MIN_WIDTH   32
 
@@ -202,7 +204,7 @@ _e_video_input_buffer_get(E_Video *video, E_Comp_Wl_Buffer *comp_buffer, Eina_Bo
            video->geo.input_w = mbuf->pitches[0] >> 2;
         else
            video->geo.input_w = mbuf->pitches[0];
-#if 0
+#ifdef DUMP_BUFFER
         static int i;
         e_devmgr_buffer_dump(mbuf, "copy", i++, 0);
 #endif
@@ -857,9 +859,9 @@ _e_video_pp_buffer_cb_release(tbm_surface_h surface, void *user_data)
    _e_video_buffer_show(video, mbuf, &video->pp_r, 0);
 
    /* don't unref pp_buffer here because we will unref it when video destroyed */
-#if 0
+#ifdef DUMP_BUFFER
    static int i;
-   e_devmgr_buffer_dump(pp_buffer, "out", i++, 0);
+   e_devmgr_buffer_dump(mbuf, "out", i++, 0);
 #endif
 }
 
@@ -890,7 +892,7 @@ _e_video_render(E_Video *video)
         EINA_SAFETY_ON_NULL_GOTO(input_buffer, render_fail);
 
         _e_video_buffer_show(video, input_buffer, &video->geo.input_r, video->geo.transform);
-#if 0
+#ifdef DUMP_BUFFER
         static int i;
         e_devmgr_buffer_dump(input_buffer, "render", i++, 0);
 #endif
@@ -948,7 +950,7 @@ _e_video_render(E_Video *video)
         video->pp_r.w = info.dst_config.pos.w;
         video->pp_r.h = info.dst_config.pos.h;
      }
-#if 0
+#ifdef DUMP_BUFFER
    static int i;
    e_devmgr_buffer_dump(input_buffer, "in", i++, 0);
 #endif
@@ -988,6 +990,21 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
    EINA_SAFETY_ON_NULL_RETURN_VAL(ev->ec, ECORE_CALLBACK_PASS_ON);
 
    ec = ev->ec;
+
+#ifdef DUMP_BUFFER
+   if (ec->comp_data->sub.data && ec->pixmap)
+     {
+        comp_buffer = e_pixmap_resource_get(ec->pixmap);
+        if (wl_shm_buffer_get(comp_buffer->resource))
+          {
+             E_Devmgr_Buf *mbuf = e_devmgr_buffer_create(comp_buffer->resource);
+             EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, ECORE_CALLBACK_PASS_ON);
+             static int i;
+             e_devmgr_buffer_dump(mbuf, "dump", i++, 0);
+             e_devmgr_buffer_unref(mbuf);
+          }
+     }
+#endif
 
    cdata = e_pixmap_cdata_get(ec->pixmap);
    EINA_SAFETY_ON_NULL_RETURN_VAL(cdata, ECORE_CALLBACK_PASS_ON);
