@@ -995,7 +995,7 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
    if (ec->comp_data->sub.data && ec->pixmap)
      {
         comp_buffer = e_pixmap_resource_get(ec->pixmap);
-        if (wl_shm_buffer_get(comp_buffer->resource))
+        if (comp_buffer && wl_shm_buffer_get(comp_buffer->resource))
           {
              E_Devmgr_Buf *mbuf = e_devmgr_buffer_create(comp_buffer->resource);
              EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, ECORE_CALLBACK_PASS_ON);
