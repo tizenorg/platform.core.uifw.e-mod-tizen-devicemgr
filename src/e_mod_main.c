@@ -10,6 +10,7 @@
 #include "e_devicemgr_video.h"
 #include "e_devicemgr_tdm.h"
 #include "e_devicemgr_embedded_compositor.h"
+#include "e_devicemgr_device.h"
 #endif
 #include "e_devicemgr_privates.h"
 
@@ -91,6 +92,12 @@ e_modapi_init(E_Module *m)
         SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_embedded_compositor_init()..!\n", __FUNCTION__);
         return NULL;
      }
+
+   if (!e_devicemgr_device_init())
+     {
+        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ e_devicemgr_device_init()..!\n", __FUNCTION__);
+        return NULL;
+     }
 #endif
 
    return m;
@@ -105,6 +112,7 @@ e_modapi_shutdown(E_Module *m EINA_UNUSED)
    e_devicemgr_video_fini();
    e_devicemgr_tdm_fini();
    e_devicemgr_embedded_compositor_fini();
+   e_devicemgr_device_fini();
 #endif
    e_devicemgr_scale_fini();
    e_devicemgr_input_fini();
