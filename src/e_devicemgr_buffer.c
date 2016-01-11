@@ -276,7 +276,7 @@ create_fail:
 }
 
 E_Devmgr_Buf*
-_e_devmgr_buffer_create_hnd(uint handle, int width, int height, const char *func)
+_e_devmgr_buffer_create_hnd(uint handle, int width, int height, int pitch, const char *func)
 {
    E_Devmgr_Buf *mbuf = NULL;
    tbm_surface_h tbm_surface;
@@ -286,6 +286,7 @@ _e_devmgr_buffer_create_hnd(uint handle, int width, int height, const char *func
    EINA_SAFETY_ON_FALSE_RETURN_VAL(handle > 0, NULL);
    EINA_SAFETY_ON_FALSE_RETURN_VAL(width > 0, NULL);
    EINA_SAFETY_ON_FALSE_RETURN_VAL(height > 0, NULL);
+   EINA_SAFETY_ON_FALSE_RETURN_VAL(pitch > 0, NULL);
 
    mbuf = calloc(1, sizeof(E_Devmgr_Buf));
    EINA_SAFETY_ON_NULL_GOTO(mbuf, create_fail);
@@ -304,7 +305,7 @@ _e_devmgr_buffer_create_hnd(uint handle, int width, int height, const char *func
    info.format = TBM_FORMAT_ARGB8888;
    info.bpp = tbm_surface_internal_get_bpp(info.format);
    info.num_planes = 1;
-   info.planes[0].stride = (width << 2);
+   info.planes[0].stride = pitch;
 
    tbm_surface = tbm_surface_internal_create_with_bos(&info, &bo, 1);
    EINA_SAFETY_ON_NULL_GOTO(tbm_surface, create_fail);
@@ -675,13 +676,13 @@ e_devmgr_buffer_convert(E_Devmgr_Buf *srcbuf, E_Devmgr_Buf *dstbuf,
    EINA_SAFETY_ON_FALSE_GOTO(dst_format > 0, cant_convert);
 
    buf_width = IS_RGB(srcbuf->tbmfmt)?(srcbuf->pitches[0]/4):srcbuf->pitches[0];
-   src_stride = buf_width * (PIXMAN_FORMAT_BPP(src_format) / 8);
+   src_stride = IS_RGB(srcbuf->tbmfmt)?(srcbuf->pitches[0]):buf_width * (PIXMAN_FORMAT_BPP(src_format) / 8);
    src_img = pixman_image_create_bits(src_format, buf_width, srcbuf->height,
                                       (uint32_t*)srcbuf->ptrs[0], src_stride);
    EINA_SAFETY_ON_NULL_GOTO(src_img, cant_convert);
 
    buf_width = IS_RGB(dstbuf->tbmfmt)?(dstbuf->pitches[0]/4):dstbuf->pitches[0];
-   dst_stride = buf_width * (PIXMAN_FORMAT_BPP(dst_format) / 8);
+   dst_stride = IS_RGB(srcbuf->tbmfmt)?(dstbuf->pitches[0]):buf_width * (PIXMAN_FORMAT_BPP(dst_format) / 8);
    dst_img = pixman_image_create_bits(dst_format, buf_width, dstbuf->height,
                                       (uint32_t*)dstbuf->ptrs[0], dst_stride);
    EINA_SAFETY_ON_NULL_GOTO(dst_img, cant_convert);

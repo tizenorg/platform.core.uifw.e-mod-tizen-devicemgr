@@ -25,6 +25,7 @@ typedef struct _E_Mirror
    Eina_List *buffer_queue;
    E_Comp_Wl_Output *wl_output;
    Ecore_Drm_Output *drm_output;
+   Ecore_Drm_Device *drm_device;
 
    /* vblank info */
    int per_vblank;
@@ -188,21 +189,26 @@ _e_tz_screenmirror_ui_buffer_get(E_Mirror *mirror)
 {
    E_Devmgr_Buf *mbuf;
    Eina_List *l;
-   uint handle;
-   int w, h;
+   drmModeFBPtr fb;
+   int fd;
+   unsigned int fb_id;
 
-   /* TODO: should find the better way to find current framebuffer */
-   ecore_drm_output_current_fb_info_get(mirror->drm_output, &handle, &w, &h, NULL);
+   fd = ecore_drm_device_fd_get(mirror->drm_device);
+   fb_id = ecore_drm_output_crtc_buffer_get(mirror->drm_output);
+   fb = drmModeGetFB(fd, fb_id);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(fb, NULL);
 
    EINA_LIST_FOREACH(mirror->ui_buffer_list, l, mbuf)
-     if (mbuf->handles[0] == handle)
+     if (mbuf->handles[0] == fb->handle)
        return mbuf;
 
-   mbuf = e_devmgr_buffer_create_hnd(handle, w, h);
+   mbuf = e_devmgr_buffer_create_hnd(fb->handle, fb->width, fb->height, fb->pitch);
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
    e_devmgr_buffer_free_func_add(mbuf, _e_tz_screenmirror_ui_buffer_cb_free, mirror);
    mirror->ui_buffer_list = eina_list_append(mirror->ui_buffer_list, mbuf);
+
+   free(fb);
 
    return mbuf;
 }
@@ -590,6 +596,7 @@ _e_tz_screenmirror_create(struct wl_client *client, struct wl_resource *shooter_
           ecore_drm_output_position_get(drm_output, &x, &y);
           if (x != mirror->wl_output->x || y != mirror->wl_output->y) continue;
           mirror->drm_output = drm_output;
+          mirror->drm_device = dev;
           break;
        }
    eina_list_free(devs);
