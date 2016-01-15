@@ -448,7 +448,34 @@ _e_video_geometry_cal_viewport(E_Video *video)
                                    video->geo.output_r.w, video->geo.output_r.h,
                                    &video->geo.output_r.w, &video->geo.output_r.h);
 
-   video->geo.transform = vp->buffer.transform;
+   switch(vp->buffer.transform)
+   {
+   case WL_OUTPUT_TRANSFORM_90:
+     video->geo.transform = TDM_TRANSFORM_270;
+     break;
+   case WL_OUTPUT_TRANSFORM_180:
+     video->geo.transform = TDM_TRANSFORM_180;
+     break;
+   case WL_OUTPUT_TRANSFORM_270:
+     video->geo.transform = TDM_TRANSFORM_90;
+     break;
+   case WL_OUTPUT_TRANSFORM_FLIPPED:
+     video->geo.transform = TDM_TRANSFORM_FLIPPED;
+     break;
+   case WL_OUTPUT_TRANSFORM_FLIPPED_90:
+     video->geo.transform = TDM_TRANSFORM_FLIPPED_270;
+     break;
+   case WL_OUTPUT_TRANSFORM_FLIPPED_180:
+     video->geo.transform = TDM_TRANSFORM_FLIPPED_180;
+     break;
+   case WL_OUTPUT_TRANSFORM_FLIPPED_270:
+     video->geo.transform = TDM_TRANSFORM_FLIPPED_90;
+     break;
+   case WL_OUTPUT_TRANSFORM_NORMAL:
+   default:
+     video->geo.transform = TDM_TRANSFORM_NORMAL;
+     break;
+   }
 
    VDB("geometry(%dx%d %d,%d,%d,%d %d,%d,%d,%d %d)",
        video->geo.input_w, video->geo.input_h,
