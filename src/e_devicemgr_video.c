@@ -1019,6 +1019,8 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
    EINA_SAFETY_ON_NULL_RETURN_VAL(ev->ec, ECORE_CALLBACK_PASS_ON);
 
    ec = ev->ec;
+   if (e_object_is_del(E_OBJECT(ec)))
+     return ECORE_CALLBACK_PASS_ON;
 
 #ifdef DUMP_BUFFER
    if (ec->comp_data->sub.data && ec->pixmap)
