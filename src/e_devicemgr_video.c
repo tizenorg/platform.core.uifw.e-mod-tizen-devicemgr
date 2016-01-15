@@ -448,6 +448,8 @@ _e_video_geometry_cal_viewport(E_Video *video)
                                    video->geo.output_r.w, video->geo.output_r.h,
                                    &video->geo.output_r.w, &video->geo.output_r.h);
 
+   video->geo.transform = vp->buffer.transform;
+
    VDB("geometry(%dx%d %d,%d,%d,%d %d,%d,%d,%d %d)",
        video->geo.input_w, video->geo.input_h,
        video->geo.input_r.x, video->geo.input_r.y, video->geo.input_r.w, video->geo.input_r.h,
