@@ -48,6 +48,7 @@ struct _E_Video
      } geo, old_geo;
 
    /* converter info */
+   tbm_format pp_tbmfmt;
    tdm_pp *pp;
    Eina_Rectangle pp_r;    /* converter dst content rect */
    Eina_List *pp_buffer_list;
@@ -200,10 +201,7 @@ _e_video_input_buffer_get(E_Video *video, E_Comp_Wl_Buffer *comp_buffer, Eina_Bo
         mbuf = temp;
         e_devmgr_buffer_unref(temp2);
 
-        if (IS_RGB(mbuf->tbmfmt))
-           video->geo.input_w = mbuf->pitches[0] >> 2;
-        else
-           video->geo.input_w = mbuf->pitches[0];
+        video->geo.input_w = mbuf->width_from_pitch;
 #ifdef DUMP_BUFFER
         static int i;
         e_devmgr_buffer_dump(mbuf, "copy", i++, 0);
@@ -275,7 +273,7 @@ _e_video_pp_buffer_get(E_Video *video, int width, int height)
         EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
         /* if we need bigger pp_buffers, destroy all pp_buffers and create */
-        if (width > (mbuf->pitches[0] >> 2))
+        if (width > (mbuf->width_from_pitch))
           {
              E_Video_Fb *vfb;
              Eina_List *ll;
@@ -300,9 +298,10 @@ _e_video_pp_buffer_get(E_Video *video, int width, int height)
 
    if (!video->pp_buffer_list)
      {
+        VDB("pp format: %c%c%c%c", FOURCC_STR(video->pp_tbmfmt));
         for (i = 0; i < BUFFER_MAX_COUNT; i++)
           {
-             mbuf = e_devmgr_buffer_alloc(width, height, TBM_FORMAT_ARGB8888, EINA_TRUE);
+             mbuf = e_devmgr_buffer_alloc(width, height, video->pp_tbmfmt, EINA_TRUE);
              EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
              e_devmgr_buffer_free_func_add(mbuf, _e_video_pp_buffer_cb_free, video);
@@ -579,7 +578,7 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
      }
 
    CLEAR(info);
-   info.src_config.size.h = vfb->mbuf->pitches[0]>>2;
+   info.src_config.size.h = vfb->mbuf->width_from_pitch;
    info.src_config.size.v = vfb->mbuf->height;
    info.src_config.pos.x = vfb->visible_r.x;
    info.src_config.pos.y = vfb->visible_r.y;
@@ -837,23 +836,36 @@ _e_video_check_if_pp_needed(E_Video *video)
    /* check formats */
    tdm_layer_get_available_formats(video->layer, &formats, &count);
    for (i = 0; i < count; i++)
+   {
+      VDB("layer format: %c%c%c%c", FOURCC_STR(formats[i]));
       if (formats[i] == video->tbmfmt)
         {
            found = EINA_TRUE;
            break;
         }
-   if (!found) return EINA_TRUE;
+   }
+   if (!found)
+     {
+        video->pp_tbmfmt = TBM_FORMAT_XRGB8888;
+        return EINA_TRUE;
+     }
 
    /* check size */
    tdm_layer_get_capabilities(video->layer, &capabilities);
    if (video->geo.input_r.w != video->geo.output_r.w || video->geo.input_r.h != video->geo.output_r.h)
       if (!(capabilities & TDM_LAYER_CAPABILITY_SCALE))
-         return EINA_TRUE;
+        {
+           video->pp_tbmfmt = video->tbmfmt;
+           return EINA_TRUE;
+        }
 
    /* check rotate */
    if (video->geo.transform)
       if (!(capabilities & TDM_LAYER_CAPABILITY_TRANSFORM))
-         return EINA_TRUE;
+        {
+           video->pp_tbmfmt = video->tbmfmt;
+           return EINA_TRUE;
+        }
 
    return EINA_FALSE;
 }
@@ -965,11 +977,11 @@ _e_video_render(E_Video *video)
         info.src_config.pos.w = video->geo.input_r.w;
         info.src_config.pos.h = video->geo.input_r.h;
         info.src_config.format = video->tbmfmt;
-        info.dst_config.size.h = pp_buffer->pitches[0] >> 2;
+        info.dst_config.size.h = pp_buffer->width_from_pitch;
         info.dst_config.size.v = pp_buffer->height;
         info.dst_config.pos.w = video->geo.output_r.w;
         info.dst_config.pos.h = video->geo.output_r.h;
-        info.dst_config.format = TBM_FORMAT_XRGB8888;
+        info.dst_config.format = video->pp_tbmfmt;
         info.transform = video->geo.transform;
 
         if (tdm_pp_set_info(video->pp, &info))

@@ -44,6 +44,8 @@ typedef struct _E_Devmgr_Buf
    int names[4];
    void *ptrs[4];
 
+   int width_from_pitch;
+
    /* to avoid reading & write at same time */
    Eina_Bool showing;
 

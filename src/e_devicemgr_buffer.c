@@ -196,6 +196,11 @@ _e_devmgr_buffer_create(struct wl_resource *resource, const char *func)
         mbuf->height = wl_shm_buffer_get_height(shm_buffer);
         mbuf->pitches[0] = wl_shm_buffer_get_stride(shm_buffer);
         mbuf->ptrs[0] = wl_shm_buffer_get_data(shm_buffer);
+
+        if (IS_RGB(mbuf->tbmfmt))
+          mbuf->width_from_pitch = mbuf->pitches[0]>>2;
+        else
+          mbuf->width_from_pitch = mbuf->pitches[0];
      }
    else if ((tbm_surface = wayland_tbm_server_get_surface(e_comp->wl_comp_data->tbm.server, resource)))
      {
@@ -231,6 +236,11 @@ _e_devmgr_buffer_create(struct wl_resource *resource, const char *func)
              mbuf->pitches[i] = pitch;
              mbuf->offsets[i] = offset;
           }
+
+        if (IS_RGB(mbuf->tbmfmt))
+          mbuf->width_from_pitch = mbuf->pitches[0]>>2;
+        else
+          mbuf->width_from_pitch = mbuf->pitches[0];
 
         switch(mbuf->tbmfmt)
           {
@@ -318,6 +328,8 @@ _e_devmgr_buffer_create_hnd(uint handle, int width, int height, int pitch, const
    mbuf->height = info.height;
    mbuf->pitches[0] = info.planes[0].stride;
    mbuf->handles[0] = handle;
+
+   mbuf->width_from_pitch = mbuf->pitches[0]>>2;
 
    mbuf->ptrs[0] = tbm_bo_get_handle(bo, TBM_DEVICE_CPU).ptr;
    EINA_SAFETY_ON_FALSE_GOTO(mbuf->ptrs[0] != NULL, create_fail);
@@ -409,6 +421,11 @@ _e_devmgr_buffer_alloc(int width, int height, tbm_format tbmfmt, Eina_Bool scano
 
    mbuf->ptrs[0] = tbm_bo_get_handle(bo, TBM_DEVICE_CPU).ptr;
    EINA_SAFETY_ON_NULL_GOTO(mbuf->ptrs[0], alloc_fail);
+
+   if (IS_RGB(mbuf->tbmfmt))
+     mbuf->width_from_pitch = mbuf->pitches[0]>>2;
+   else
+     mbuf->width_from_pitch = mbuf->pitches[0];
 
    switch(mbuf->tbmfmt)
      {
@@ -916,7 +933,7 @@ _dump_png(const char* file, const void * data, int width, int height)
              row[x * pixel_size] = (curBlock & 0xFF);
              row[1 + x * pixel_size] = (curBlock >> 8) & 0xFF;
              row[2 + x * pixel_size] = (curBlock >> 16) & 0xFF;
-             row[3 + x * pixel_size] = 0xFF;
+             row[3 + x * pixel_size] = (curBlock >> 24) & 0xFF;
           }
      }
 
@@ -942,7 +959,7 @@ e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *prefix, int nth, Eina_Bool 
 
    if (IS_RGB(mbuf->tbmfmt))
      snprintf(path, sizeof(path), "%s/%s_%c%c%c%c_%dx%d_%03d.%s", dir, prefix,
-              FOURCC_STR(mbuf->tbmfmt), mbuf->pitches[0] / 4, mbuf->height,
+              FOURCC_STR(mbuf->tbmfmt), mbuf->width_from_pitch, mbuf->height,
               nth, raw?"raw":"png");
    else
      snprintf(path, sizeof(path), "%s/%s_%c%c%c%c_%dx%d_%03d.yuv", dir, prefix,
@@ -955,7 +972,7 @@ e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *prefix, int nth, Eina_Bool 
         if (raw)
           _dump_raw(path, mbuf->ptrs[0], mbuf->pitches[0] * mbuf->height, NULL, 0, NULL, 0);
         else
-          _dump_png(path, mbuf->ptrs[0], mbuf->pitches[0] / 4, mbuf->height);
+          _dump_png(path, mbuf->ptrs[0], mbuf->width_from_pitch, mbuf->height);
         break;
       case TBM_FORMAT_YVU420:
       case TBM_FORMAT_YUV420:
