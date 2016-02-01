@@ -3,6 +3,8 @@
 
 static Eina_List *handlers = NULL;
 
+e_devicemgr_input_devmgr_data *input_devmgr_data;
+
 static void
 _e_device_mgr_device_cb_axes_select(struct wl_client *client, struct wl_resource *resource, struct wl_array *axes)
 {
@@ -169,6 +171,106 @@ _cb_device_del(void *data EINA_UNUSED, int type EINA_UNUSED, void *event)
 }
 
 static void
+_e_input_devmgr_request_client_remove(struct wl_client *client)
+{
+   input_devmgr_data->block_devtype = 0x0;
+   if (input_devmgr_data->interval_timer)
+     {
+        ecore_timer_del(input_devmgr_data->interval_timer);
+        input_devmgr_data->interval_timer = NULL;
+     }
+   input_devmgr_data->block_client = NULL;
+}
+
+static Eina_Bool
+_e_input_devmgr_cb_block_timer(void *data)
+{
+   struct wl_resource *resource = (struct wl_resource *)data;
+   struct wl_client *client = wl_resource_get_client(resource);
+
+   if ((input_devmgr_data->block_client) && (input_devmgr_data->block_client != client))
+     {
+        return ECORE_CALLBACK_CANCEL;
+     }
+
+   _e_input_devmgr_request_client_remove(client);
+   tizen_input_device_manager_send_block_expired(resource);
+
+   return ECORE_CALLBACK_CANCEL;
+}
+
+static void
+_e_input_devmgr_client_cb_destroy(struct wl_listener *l, void *data)
+{
+   struct wl_client *client = (struct wl_client *)data;
+
+   if (!input_devmgr_data->block_client) return;
+
+   _e_input_devmgr_request_client_remove(client);
+}
+
+static void
+_e_input_devmgr_request_client_add(struct wl_client *client, struct wl_resource *resource, uint32_t class, uint32_t interval)
+{
+   struct wl_listener *destroy_listener = NULL;
+
+   /* Last request of block can renew timer time */
+   if (input_devmgr_data->interval_timer)
+     ecore_timer_del(input_devmgr_data->interval_timer);
+   input_devmgr_data->interval_timer = ecore_timer_add(interval, _e_input_devmgr_cb_block_timer, resource);
+
+   input_devmgr_data->block_devtype |= class;
+
+   if (input_devmgr_data->block_client) return;
+
+   destroy_listener = E_NEW(struct wl_listener, 1);
+   destroy_listener->notify = _e_input_devmgr_client_cb_destroy;
+   wl_client_add_destroy_listener(client, destroy_listener);
+}
+
+static void
+_e_input_devmgr_cb_block_events(struct wl_client *client, struct wl_resource *resource,
+                             uint32_t serial, uint32_t class, uint32_t interval)
+{
+   /* TODO: Only permitted client could block input devices.
+    *       Check privilege in here
+    */
+   if ((input_devmgr_data->block_client) && (input_devmgr_data->block_client != client))
+     {
+        tizen_input_device_manager_send_error(resource, TIZEN_INPUT_DEVICE_MANAGER_ERROR);
+        return;
+     }
+
+   _e_input_devmgr_request_client_add(client, resource, class, interval);
+
+   /* TODO: Release pressed button or key */
+}
+
+static void
+_e_input_devmgr_cb_unblock_events(struct wl_client *client, struct wl_resource *resource,
+                             uint32_t serial, uint32_t class)
+{
+   (void)class;
+
+   /* TODO: Only permitted client could block input devices.
+    *       Check privilege in here
+    */
+
+  if ((input_devmgr_data->block_client) && (input_devmgr_data->block_client != client))
+    {
+       tizen_input_device_manager_send_error(resource, TIZEN_INPUT_DEVICE_MANAGER_ERROR);
+       return;
+    }
+
+   _e_input_devmgr_request_client_remove(client);
+}
+
+static const struct tizen_input_device_manager_interface _e_input_devmgr_implementation = {
+   _e_input_devmgr_cb_block_events,
+   _e_input_devmgr_cb_unblock_events,
+};
+
+static void
 _e_devicemgr_device_mgr_cb_unbind(struct wl_resource *resource)
 {
    if(!e_comp_wl) return;
@@ -197,7 +299,7 @@ _e_devicemgr_device_mgr_cb_bind(struct wl_client *client, void *data, uint32_t v
 
    e_comp_wl->input_device_manager.resources = eina_list_append(e_comp_wl->input_device_manager.resources, res);
 
-   wl_resource_set_implementation(res, NULL, NULL,
+   wl_resource_set_implementation(res, &_e_input_devmgr_implementation, NULL,
                                  _e_devicemgr_device_mgr_cb_unbind);
 
    EINA_LIST_FOREACH(e_comp_wl->seat.resources, l, seat_res)
@@ -231,6 +333,56 @@ _e_devicemgr_device_mgr_cb_bind(struct wl_client *client, void *data, uint32_t v
      }
 }
 
+static Eina_Bool
+_e_devicemgr_block_check_pointer(int type, void *event)
+{
+   Ecore_Event_Mouse_Button *ev;
+
+   ev = event;
+   EINA_SAFETY_ON_NULL_RETURN_VAL(ev, ECORE_CALLBACK_PASS_ON);
+
+   if (input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLASS_MOUSE)
+     {
+        return ECORE_CALLBACK_DONE;
+     }
+   return ECORE_CALLBACK_PASS_ON;
+}
+
+static Eina_Bool
+_e_devicemgr_block_check_keyboard(int type, void *event)
+{
+   Ecore_Event_Key *ev;
+
+   ev = event;
+   EINA_SAFETY_ON_NULL_RETURN_VAL(ev, ECORE_CALLBACK_PASS_ON);
+
+   if (input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLASS_KEYBOARD)
+     {
+        return ECORE_CALLBACK_DONE;
+     }
+   return ECORE_CALLBACK_PASS_ON;
+}
+
+static Eina_Bool
+_e_devicemgr_event_filter(void *data, void *loop_data EINA_UNUSED, int type, void *event)
+{
+   (void) data;
+
+   /* Filter only for key down/up event */
+   if (ECORE_EVENT_KEY_DOWN == type || ECORE_EVENT_KEY_UP == type)
+     {
+        return _e_devicemgr_block_check_keyboard(type, event);
+     }
+   else if(ECORE_EVENT_MOUSE_BUTTON_DOWN == type ||
+           ECORE_EVENT_MOUSE_BUTTON_UP == type ||
+           ECORE_EVENT_MOUSE_MOVE == type)
+     {
+        return _e_devicemgr_block_check_pointer(type, event);
+     }
+
+   return ECORE_CALLBACK_PASS_ON;
+}
+
 int
 e_devicemgr_device_init(void)
 {
@@ -251,6 +403,13 @@ e_devicemgr_device_init(void)
 
    E_LIST_HANDLER_APPEND(handlers, ECORE_EVENT_DEVICE_ADD, _cb_device_add, NULL);
    E_LIST_HANDLER_APPEND(handlers, ECORE_EVENT_DEVICE_DEL, _cb_device_del, NULL);
+
+   ecore_event_filter_add(NULL, _e_devicemgr_event_filter, NULL, NULL);
+
+   input_devmgr_data = E_NEW(e_devicemgr_input_devmgr_data, 1);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(input_devmgr_data, 0);
+
+   input_devmgr_data->block_devtype = 0x0;
 
    return 1;
 }
