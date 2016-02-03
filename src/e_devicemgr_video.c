@@ -841,22 +841,23 @@ _e_video_check_if_pp_needed(E_Video *video)
 
    /* check size */
    tdm_layer_get_capabilities(video->layer, &capabilities);
+   if (capabilities & TDM_LAYER_CAPABILITY_SCANOUT)
+      goto need_pp;
+
    if (video->geo.input_r.w != video->geo.output_r.w || video->geo.input_r.h != video->geo.output_r.h)
       if (!(capabilities & TDM_LAYER_CAPABILITY_SCALE))
-        {
-           video->pp_tbmfmt = video->tbmfmt;
-           return EINA_TRUE;
-        }
+         goto need_pp;
 
    /* check rotate */
    if (video->geo.transform)
       if (!(capabilities & TDM_LAYER_CAPABILITY_TRANSFORM))
-        {
-           video->pp_tbmfmt = video->tbmfmt;
-           return EINA_TRUE;
-        }
+         goto need_pp;
 
    return EINA_FALSE;
+
+need_pp:
+   video->pp_tbmfmt = video->tbmfmt;
+   return EINA_TRUE;
 }
 
 static void
