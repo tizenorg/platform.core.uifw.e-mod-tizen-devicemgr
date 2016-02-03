@@ -210,7 +210,7 @@ _e_input_devmgr_client_cb_destroy(struct wl_listener *l, void *data)
 }
 
 static void
-_e_input_devmgr_request_client_add(struct wl_client *client, struct wl_resource *resource, uint32_t class, uint32_t duration)
+_e_input_devmgr_request_client_add(struct wl_client *client, struct wl_resource *resource, uint32_t clas, uint32_t duration)
 {
    struct wl_listener *destroy_listener = NULL;
    double milli_duration = duration / 1000;
@@ -220,7 +220,7 @@ _e_input_devmgr_request_client_add(struct wl_client *client, struct wl_resource 
      ecore_timer_del(input_devmgr_data->duration_timer);
    input_devmgr_data->duration_timer = ecore_timer_add(milli_duration, _e_input_devmgr_cb_block_timer, resource);
 
-   input_devmgr_data->block_devtype |= class;
+   input_devmgr_data->block_devtype |= clas;
 
    if (input_devmgr_data->block_client) return;
    input_devmgr_data->block_client = client;
@@ -232,7 +232,7 @@ _e_input_devmgr_request_client_add(struct wl_client *client, struct wl_resource 
 
 static void
 _e_input_devmgr_cb_block_events(struct wl_client *client, struct wl_resource *resource,
-                             uint32_t serial, uint32_t class, uint32_t duration)
+                             uint32_t serial, uint32_t clas, uint32_t duration)
 {
    /* TODO: Only permitted client could block input devices.
     *       Check privilege in here
@@ -242,15 +242,15 @@ _e_input_devmgr_cb_block_events(struct wl_client *client, struct wl_resource *re
         tizen_input_device_manager_send_error(resource, TIZEN_INPUT_DEVICE_MANAGER_ERROR_BLOCKED_ALREADY);
         return;
      }
-   if ((class != TIZEN_INPUT_DEVICE_MANAGER_CLASS_MOUSE) &&
-        (class != TIZEN_INPUT_DEVICE_MANAGER_CLASS_KEYBOARD) &&
-        (class != TIZEN_INPUT_DEVICE_MANAGER_CLASS_TOUCHSCREEN))
+   if ((clas != TIZEN_INPUT_DEVICE_MANAGER_CLAS_MOUSE) &&
+        (clas != TIZEN_INPUT_DEVICE_MANAGER_CLAS_KEYBOARD) &&
+        (clas != TIZEN_INPUT_DEVICE_MANAGER_CLAS_TOUCHSCREEN))
      {
         tizen_input_device_manager_send_error(resource, TIZEN_INPUT_DEVICE_MANAGER_ERROR_INVALID_CLASS);
         return;
      }
 
-   _e_input_devmgr_request_client_add(client, resource, class, duration);
+   _e_input_devmgr_request_client_add(client, resource, clas, duration);
 
    /* TODO: Release pressed button or key */
 }
@@ -348,8 +348,8 @@ _e_devicemgr_block_check_pointer(int type, void *event)
    ev = event;
    EINA_SAFETY_ON_NULL_RETURN_VAL(ev, ECORE_CALLBACK_PASS_ON);
 
-   if ((input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLASS_MOUSE) ||
-       (input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLASS_TOUCHSCREEN))
+   if ((input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLAS_MOUSE) ||
+       (input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLAS_TOUCHSCREEN))
      {
         return ECORE_CALLBACK_DONE;
      }
@@ -364,7 +364,7 @@ _e_devicemgr_block_check_keyboard(int type, void *event)
    ev = event;
    EINA_SAFETY_ON_NULL_RETURN_VAL(ev, ECORE_CALLBACK_PASS_ON);
 
-   if (input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLASS_KEYBOARD)
+   if (input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLAS_KEYBOARD)
      {
         return ECORE_CALLBACK_DONE;
      }
