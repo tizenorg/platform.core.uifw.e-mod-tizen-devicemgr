@@ -180,7 +180,7 @@ _e_video_input_buffer_get(E_Video *video, E_Comp_Wl_Buffer *comp_buffer, Eina_Bo
    mbuf = e_devmgr_buffer_create(comp_buffer->resource);
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
-   if (mbuf->width % video->pp_align)
+   if (video->pp && (mbuf->width % video->pp_align))
      {
         int aligned_width = ROUNDUP(mbuf->width, video->pp_align);
         E_Devmgr_Buf *temp, *temp2;
