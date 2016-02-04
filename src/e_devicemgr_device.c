@@ -234,6 +234,9 @@ static void
 _e_input_devmgr_cb_block_events(struct wl_client *client, struct wl_resource *resource,
                              uint32_t serial, uint32_t clas, uint32_t duration)
 {
+   uint32_t all_class = TIZEN_INPUT_DEVICE_MANAGER_CLAS_MOUSE |
+                        TIZEN_INPUT_DEVICE_MANAGER_CLAS_KEYBOARD |
+                        TIZEN_INPUT_DEVICE_MANAGER_CLAS_TOUCHSCREEN;
    /* TODO: Only permitted client could block input devices.
     *       Check privilege in here
     */
@@ -242,9 +245,7 @@ _e_input_devmgr_cb_block_events(struct wl_client *client, struct wl_resource *re
         tizen_input_device_manager_send_error(resource, TIZEN_INPUT_DEVICE_MANAGER_ERROR_BLOCKED_ALREADY);
         return;
      }
-   if ((clas != TIZEN_INPUT_DEVICE_MANAGER_CLAS_MOUSE) &&
-        (clas != TIZEN_INPUT_DEVICE_MANAGER_CLAS_KEYBOARD) &&
-        (clas != TIZEN_INPUT_DEVICE_MANAGER_CLAS_TOUCHSCREEN))
+   if (!(clas & all_class))
      {
         tizen_input_device_manager_send_error(resource, TIZEN_INPUT_DEVICE_MANAGER_ERROR_INVALID_CLASS);
         return;
