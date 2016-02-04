@@ -135,6 +135,26 @@ find_video_with_surface(struct wl_resource *surface)
    return NULL;
 }
 
+static E_Client*
+find_topmost_parent_get(E_Client *ec)
+{
+   E_Client *parent = NULL;
+
+   if (!ec->comp_data || !ec->comp_data->sub.data)
+      return ec;
+
+   parent = ec->comp_data->sub.data->parent;
+   while (parent)
+     {
+        if (!parent->comp_data || !parent->comp_data->sub.data)
+          return parent;
+
+        parent = parent->comp_data->sub.data->parent;
+     }
+
+   return ec;
+}
+
 static void
 _e_video_input_buffer_cb_free(E_Devmgr_Buf *mbuf, void *data)
 {
@@ -1096,8 +1116,38 @@ _e_video_cb_ec_remove(void *data, int type, void *event)
    if (!ec->comp_data) return ECORE_CALLBACK_PASS_ON;
 
    video = find_video_with_surface(ec->comp_data->surface);
+   if (!video) return ECORE_CALLBACK_PASS_ON;
 
    _e_video_destroy(video);
+
+   return ECORE_CALLBACK_PASS_ON;
+}
+
+static Eina_Bool
+_e_video_cb_ec_hide(void *data, int type, void *event)
+{
+   E_Event_Client *ev = event;
+   E_Client *ec, *topmost;
+   E_Video *video;
+
+   EINA_SAFETY_ON_NULL_RETURN_VAL(ev, ECORE_CALLBACK_PASS_ON);
+   EINA_SAFETY_ON_NULL_RETURN_VAL(ev->ec, ECORE_CALLBACK_PASS_ON);
+
+   ec = ev->ec;
+   if (!ec->comp_data) return ECORE_CALLBACK_PASS_ON;
+
+   video = find_video_with_surface(ec->comp_data->surface);
+   if (!video) return ECORE_CALLBACK_PASS_ON;
+
+   topmost = find_topmost_parent_get(ec);
+   if (!topmost) return ECORE_CALLBACK_PASS_ON;
+
+   /* if topmost parent is visible, we don't hide previous video frame. */
+   if (topmost->visible) return ECORE_CALLBACK_PASS_ON;
+
+   _e_video_frame_buffer_show(video, NULL);
+
+   VIN("hide");
 
    return ECORE_CALLBACK_PASS_ON;
 }
@@ -1256,7 +1306,7 @@ e_devicemgr_video_init(void)
    E_LIST_HANDLER_APPEND(video_hdlrs, E_EVENT_CLIENT_REMOVE,
                          _e_video_cb_ec_remove, NULL);
    E_LIST_HANDLER_APPEND(video_hdlrs, E_EVENT_CLIENT_HIDE,
-                         _e_video_cb_ec_remove, NULL);
+                         _e_video_cb_ec_hide, NULL);
 
    return 1;
 }
