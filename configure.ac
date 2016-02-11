@@ -34,6 +34,13 @@ AC_PROG_LIBTOOL
 dnl ========================================================================
 # checks for libraries
 dnl ========================================================================
+# Check for ttrace
+PKG_CHECK_MODULES(TTRACE,
+                  [ttrace],
+                  [have_ttrace="yes"], [have_ttrace="no"])
+if test "x$have_ttrace" = "xyes"; then
+  AC_DEFINE(ENABLE_TTRACE, 1, [ttrace available])
+fi
 
 dnl ========================================================================
 # checks for header files

@@ -13,6 +13,7 @@ BuildRequires: pkgconfig(enlightenment)
 BuildRequires: pkgconfig(elementary)
 BuildRequires: pkgconfig(dlog)
 BuildRequires: pkgconfig(cairo)
+BuildRequires: pkgconfig(ttrace)
 %if %{with x}
 BuildRequires: pkgconfig(x11)
 BuildRequires: pkgconfig(xextproto)

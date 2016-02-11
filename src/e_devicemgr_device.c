@@ -36,12 +36,18 @@ _e_devicemgr_del_device(const char *name, const char *identifier, const char *se
    if (!e_comp_wl) return;
    if (!e_comp_wl->wl.disp);
 
+   TRACE_BEGIN(_e_devicemgr_del_device);
+
    EINA_LIST_FOREACH(e_comp_wl->input_device_manager.device_list, l, dev)
      {
         if ((dev->capability == cap) && (!strcmp(dev->name, name))  && (!strcmp(dev->identifier, identifier)))
           break;
      }
-   if (!dev) return;
+   if (!dev)
+     {
+        TRACE_END();
+        return;
+     }
 
    if (dev->name) eina_stringshare_del(dev->name);
    if (dev->identifier) eina_stringshare_del(dev->identifier);
@@ -69,6 +75,7 @@ _e_devicemgr_del_device(const char *name, const char *identifier, const char *se
    e_comp_wl->input_device_manager.device_list = eina_list_remove(e_comp_wl->input_device_manager.device_list, dev);
 
    free(dev);
+   TRACE_END();
 }
 
 static void
@@ -95,10 +102,15 @@ _e_devicemgr_add_device(const char *name, const char *identifier, const char *se
    if (!e_comp_wl) return;
    if (!e_comp_wl->wl.disp) return;
 
+   TRACE_BEGIN(_e_devicemgr_add_device);
+
    EINA_LIST_FOREACH(e_comp_wl->input_device_manager.device_list, l, dev)
      {
         if ((dev->capability == cap) && (!strcmp(dev->identifier, identifier)))
-          return;
+          {
+             TRACE_END();
+             return;
+          }
      }
 
    if (!(dev = E_NEW(E_Comp_Wl_Input_Device, 1))) return;
@@ -118,6 +130,7 @@ _e_devicemgr_add_device(const char *name, const char *identifier, const char *se
         if (!res)
           {
              ERR("Could not create tizen_input_device resource");
+             TRACE_END();
              return;
           }
 
@@ -134,6 +147,7 @@ _e_devicemgr_add_device(const char *name, const char *identifier, const char *se
      }
 
    e_comp_wl->input_device_manager.device_list = eina_list_append(e_comp_wl->input_device_manager.device_list, dev);
+   TRACE_END();
 }
 
 static Eina_Bool
@@ -399,12 +413,15 @@ e_devicemgr_device_init(void)
    if (!e_comp_wl) return 0;
    if (!e_comp_wl->wl.disp) return 0;
 
+   TRACE_BEGIN(e_devicemgr_device_init);
+
    /* try to add tizen_input_device_manager to wayland globals */
    e_comp_wl->input_device_manager.global = wl_global_create(e_comp_wl->wl.disp, &tizen_input_device_manager_interface, 1,
                          NULL, _e_devicemgr_device_mgr_cb_bind);
    if (!e_comp_wl->input_device_manager.global)
      {
         ERR("Could not add tizen_input_device_manager to wayland globals");
+        TRACE_END();
         return 0;
      }
    e_comp_wl->input_device_manager.resources = NULL;
@@ -420,6 +437,7 @@ e_devicemgr_device_init(void)
 
    input_devmgr_data->block_devtype = 0x0;
 
+   TRACE_END();
    return 1;
 }
 
