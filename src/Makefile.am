@@ -23,8 +23,8 @@ module_la_SOURCES      += \
 endif
 
 module_la_LIBADD       =
-module_la_CFLAGS       = @ENLIGHTENMENT_CFLAGS@
-module_la_LDFLAGS      = -module -avoid-version @ENLIGHTENMENT_LIBS@
+module_la_CFLAGS       = @ENLIGHTENMENT_CFLAGS@ @TTRACE_CFLAGS@
+module_la_LDFLAGS      = -module -avoid-version @ENLIGHTENMENT_LIBS@ @TTRACE_LIBS@
 module_la_DEPENDENCIES = $(top_builddir)/config.h
 
 #uninstall:

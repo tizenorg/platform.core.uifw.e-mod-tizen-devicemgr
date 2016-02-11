@@ -7,6 +7,16 @@
 #include "e_comp_wl.h"
 #include <wayland-server.h>
 
+#ifdef ENABLE_TTRACE
+#include <ttrace.h>
+
+#define TRACE_BEGIN(NAME) traceBegin(TTRACE_TAG_INPUT, "INPUT:DEVMGR:"#NAME)
+#define TRACE_END() traceEnd(TTRACE_TAG_INPUT)
+#else
+#define TRACE_BEGIN(NAME)
+#define TRACE_END()
+#endif
+
 typedef struct _e_devicemgr_input_devmgr_data e_devicemgr_input_devmgr_data;
 
 struct _e_devicemgr_input_devmgr_data
