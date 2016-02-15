@@ -842,6 +842,12 @@ _e_video_check_if_pp_needed(E_Video *video)
    Eina_Bool found = EINA_FALSE;
    tdm_layer_capability capabilities = 0;
 
+   tdm_layer_get_capabilities(video->layer, &capabilities);
+
+   /* don't need pp if a layer has TDM_LAYER_CAPABILITY_VIDEO capability*/
+   if (capabilities & TDM_LAYER_CAPABILITY_VIDEO)
+      return EINA_FALSE;
+
    /* check formats */
    tdm_layer_get_available_formats(video->layer, &formats, &count);
    for (i = 0; i < count; i++)
@@ -860,7 +866,6 @@ _e_video_check_if_pp_needed(E_Video *video)
      }
 
    /* check size */
-   tdm_layer_get_capabilities(video->layer, &capabilities);
    if (capabilities & TDM_LAYER_CAPABILITY_SCANOUT)
       goto need_pp;
 
