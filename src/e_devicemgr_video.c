@@ -549,6 +549,7 @@ _e_video_format_info_get(E_Video *video)
    EINA_SAFETY_ON_NULL_RETURN(tbm_surf);
 
    video->tbmfmt = tbm_surface_get_format(tbm_surf);
+   VDB("video format: %c%c%c%c", FOURCC_STR(video->tbmfmt));
 }
 
 static E_Video_Fb*
