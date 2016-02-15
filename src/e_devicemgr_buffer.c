@@ -226,7 +226,6 @@ _e_devmgr_buffer_create(struct wl_resource *resource, const char *func)
                   EINA_SAFETY_ON_FALSE_GOTO(mbuf->handles[i] > 0, create_fail);
 
                   mbuf->ptrs[i] = tbm_bo_get_handle(bo, TBM_DEVICE_CPU).ptr;
-                  EINA_SAFETY_ON_FALSE_GOTO(mbuf->ptrs[i] != NULL, create_fail);
 
                   mbuf->names[i] = tbm_bo_export(bo);
                   EINA_SAFETY_ON_FALSE_GOTO(mbuf->names[i] > 0, create_fail);
@@ -332,7 +331,6 @@ _e_devmgr_buffer_create_hnd(uint handle, int width, int height, int pitch, const
    mbuf->width_from_pitch = mbuf->pitches[0]>>2;
 
    mbuf->ptrs[0] = tbm_bo_get_handle(bo, TBM_DEVICE_CPU).ptr;
-   EINA_SAFETY_ON_FALSE_GOTO(mbuf->ptrs[0] != NULL, create_fail);
 
    mbuf->names[0] = tbm_bo_export(bo);
    EINA_SAFETY_ON_FALSE_GOTO(mbuf->names[0] > 0, create_fail);
@@ -420,7 +418,6 @@ _e_devmgr_buffer_alloc(int width, int height, tbm_format tbmfmt, Eina_Bool scano
    EINA_SAFETY_ON_FALSE_GOTO(mbuf->names[0] > 0, alloc_fail);
 
    mbuf->ptrs[0] = tbm_bo_get_handle(bo, TBM_DEVICE_CPU).ptr;
-   EINA_SAFETY_ON_NULL_GOTO(mbuf->ptrs[0], alloc_fail);
 
    if (IS_RGB(mbuf->tbmfmt))
      mbuf->width_from_pitch = mbuf->pitches[0]>>2;
@@ -537,6 +534,12 @@ void
 e_devmgr_buffer_clear(E_Devmgr_Buf *mbuf)
 {
    EINA_SAFETY_ON_NULL_RETURN(mbuf);
+
+   if (!mbuf->ptrs[0])
+     {
+        BDB("no ptrs");
+        return;
+     }
 
    switch(mbuf->tbmfmt)
      {
@@ -956,6 +959,11 @@ e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *prefix, int nth, Eina_Bool 
    const char *dir = "/tmp/dump";
 
    if (!mbuf) return;
+   if (!mbuf->ptrs[0])
+     {
+        BDB("no ptrs");
+        return;
+     }
 
    if (IS_RGB(mbuf->tbmfmt))
      snprintf(path, sizeof(path), "%s/%s_%c%c%c%c_%dx%d_%03d.%s", dir, prefix,
