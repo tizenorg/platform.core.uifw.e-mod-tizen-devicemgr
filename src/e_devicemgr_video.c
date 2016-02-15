@@ -730,10 +730,11 @@ _e_video_create(struct wl_resource *video_object, struct wl_resource *surface)
 static void
 _e_video_set(E_Video *video, E_Client *ec)
 {
-   int minw = 0, minh = 0, maxw = 0, maxh = 0, align = 0;
-   int pminw = 0, pminh = 0, pmaxw = 0, pmaxh = 0, palign = 0;
+   int ominw = -1, ominh = -1, omaxw = -1, omaxh = -1, oalign = -1;
+   int pminw = -1, pminh = -1, pmaxw = -1, pmaxh = -1, palign = -1;
    int i, count = 0;
    const tdm_prop *props;
+   tdm_error ret;
 
    if (!video || !ec)
       return;
@@ -761,19 +762,47 @@ _e_video_set(E_Video *video, E_Client *ec)
       video->layer = e_devicemgr_tdm_avaiable_overlay_layer_get(video->output);
    EINA_SAFETY_ON_NULL_RETURN(video->layer);
 
+   tdm_output_get_available_size(video->output, &ominw, &ominh, &omaxw, &omaxh, &oalign);
+   ret = tdm_display_get_pp_available_size(e_devmgr_dpy->tdm, &pminw, &pminh, &pmaxw, &pmaxh, &palign);
 
-   tdm_output_get_available_size(video->output, &minw, &minh, &maxw, &maxh, &align);
-   tdm_display_get_pp_available_size(e_devmgr_dpy->tdm, &pminw, &pminh, &pmaxw, &pmaxh, &palign);
+   if (ret != TDM_ERROR_NONE)
+      tizen_video_object_send_size(video->video_object,
+                                   ominw, ominh, omaxw, omaxh, oalign);
+   else
+   {
+      int minw, minh, maxw, maxh, align = -1;
 
-   maxw = (maxw == -1) ? MAXINT : maxw;
-   maxh = (maxh == -1) ? MAXINT : maxh;
-   pmaxw = (pmaxw == -1) ? MAXINT : pmaxw;
-   pmaxh = (pmaxh == -1) ? MAXINT : pmaxh;
+      minw = MAX(ominw, pminw);
+      minh = MAX(ominh, pminh);
 
-   tizen_video_object_send_size(video->video_object,
-                                MAX(minw, pminw), MAX(minh, pminh),
-                                MIN(maxw, pmaxw), MIN(maxh, pmaxh),
-                                lcm(align, palign));
+      if (omaxw != -1 && pmaxw == -1)
+         maxw = omaxw;
+      else if (omaxw == -1 && pmaxw != -1)
+         maxw = pmaxw;
+      else
+         maxw = MIN(omaxw, pmaxw);
+
+      if (omaxh != -1 && pmaxh == -1)
+         maxw = omaxh;
+      else if (omaxh == -1 && pmaxh != -1)
+         maxw = pmaxh;
+      else
+         maxh = MIN(omaxh, pmaxh);
+
+      if (oalign != -1 && palign == -1)
+         align = oalign;
+      else if (oalign == -1 && palign != -1)
+         align = palign;
+      else if (oalign == -1 && palign == -1)
+         align = palign;
+      else if (oalign > 0 && palign > 0)
+         align = lcm(oalign, palign);
+      else
+         ERR("invalid align: %d, %d", oalign, palign);
+
+      tizen_video_object_send_size(video->video_object,
+                                   minw, minh, maxw, maxh, align);
+   }
 
    tdm_layer_get_available_properties(video->layer, &props, &count);
    for (i = 0; i < count; i++)
