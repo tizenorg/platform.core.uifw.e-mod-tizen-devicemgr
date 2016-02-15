@@ -771,7 +771,7 @@ _e_video_set(E_Video *video, E_Client *ec)
                                    ominw, ominh, omaxw, omaxh, oalign);
    else
    {
-      int minw, minh, maxw, maxh, align = -1;
+      int minw = -1, minh = -1, maxw = -1, maxh = -1, align = -1;
 
       minw = MAX(ominw, pminw);
       minh = MAX(ominh, pminh);
