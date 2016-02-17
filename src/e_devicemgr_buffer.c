@@ -285,6 +285,95 @@ create_fail:
 }
 
 E_Devmgr_Buf*
+_e_devmgr_buffer_create_tbm(tbm_surface_h tbm_surface, const char *func)
+{
+   E_Devmgr_Buf *mbuf;
+   int i;
+
+   EINA_SAFETY_ON_NULL_RETURN_VAL(tbm_surface, NULL);
+
+   mbuf = calloc(1, sizeof(E_Devmgr_Buf));
+   EINA_SAFETY_ON_FALSE_GOTO(mbuf != NULL, create_fail);
+
+   mbuf->ref_cnt = 1;
+   mbuf->stamp = e_devmgr_buffer_get_mills();
+   while (_find_mbuf(mbuf->stamp))
+     mbuf->stamp++;
+   mbuf->func = strdup(func);
+
+   mbuf->type = TYPE_TBM;
+   mbuf->tbm_surface = tbm_surface;
+   tbm_surface_internal_ref(tbm_surface);
+
+   mbuf->tbmfmt = tbm_surface_get_format(tbm_surface);
+   mbuf->width = tbm_surface_get_width(tbm_surface);
+   mbuf->height = tbm_surface_get_height(tbm_surface);
+
+   for (i = 0; i < 3; i++)
+     {
+        uint32_t size = 0, offset = 0, pitch = 0;
+        tbm_bo bo;
+
+        bo = tbm_surface_internal_get_bo(tbm_surface, i);
+        if (bo)
+          {
+             mbuf->handles[i] = tbm_bo_get_handle(bo, TBM_DEVICE_DEFAULT).u32;
+             EINA_SAFETY_ON_FALSE_GOTO(mbuf->handles[i] > 0, create_fail);
+
+             mbuf->ptrs[i] = tbm_bo_get_handle(bo, TBM_DEVICE_CPU).ptr;
+
+             mbuf->names[i] = tbm_bo_export(bo);
+             EINA_SAFETY_ON_FALSE_GOTO(mbuf->names[i] > 0, create_fail);
+          }
+
+        tbm_surface_internal_get_plane_data(tbm_surface, i, &size, &offset, &pitch);
+        mbuf->pitches[i] = pitch;
+        mbuf->offsets[i] = offset;
+     }
+
+   if (IS_RGB(mbuf->tbmfmt))
+     mbuf->width_from_pitch = mbuf->pitches[0]>>2;
+   else
+     mbuf->width_from_pitch = mbuf->pitches[0];
+
+   switch(mbuf->tbmfmt)
+     {
+      case TBM_FORMAT_YVU420:
+      case TBM_FORMAT_YUV420:
+        if (!mbuf->ptrs[1])
+           mbuf->ptrs[1] = mbuf->ptrs[0];
+        if (!mbuf->ptrs[2])
+           mbuf->ptrs[2] = mbuf->ptrs[1];
+        break;
+      case TBM_FORMAT_NV12:
+      case TBM_FORMAT_NV21:
+        if (!mbuf->ptrs[1])
+          mbuf->ptrs[1] = mbuf->ptrs[0];
+        break;
+      default:
+        break;
+     }
+
+   mbuf_lists = eina_list_append(mbuf_lists, mbuf);
+
+   BDB("type(%d) %dx%d, %c%c%c%c, name(%d,%d,%d) hnd(%d,%d,%d), pitch(%d,%d,%d), offset(%d,%d,%d) ptr(%p,%p,%p): %s",
+       mbuf->type, mbuf->width, mbuf->height, FOURCC_STR(mbuf->tbmfmt),
+       mbuf->names[0], mbuf->names[1], mbuf->names[2],
+       mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
+       mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
+       mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2],
+       mbuf->ptrs[0], mbuf->ptrs[1], mbuf->ptrs[2],
+       func);
+
+   return mbuf;
+
+create_fail:
+   e_devmgr_buffer_free(mbuf);
+
+   return NULL;
+}
+
+E_Devmgr_Buf*
 _e_devmgr_buffer_create_hnd(uint handle, int width, int height, int pitch, const char *func)
 {
    E_Devmgr_Buf *mbuf = NULL;
