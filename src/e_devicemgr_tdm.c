@@ -64,8 +64,6 @@ e_devicemgr_tdm_init(void)
         return 0;
      }
 
-   tdm_helper_drm_fd = e_devmgr_dpy->drm_fd;
-
    e_devmgr_dpy->tdm = tdm_display_init(NULL);
    if (!e_devmgr_dpy->tdm)
      {
@@ -102,8 +100,6 @@ e_devicemgr_tdm_fini(void)
 {
    e_comp->wl_comp_data->available_hw_accel.underlay = EINA_FALSE;
    e_comp->wl_comp_data->available_hw_accel.scaler = EINA_FALSE;
-
-   tdm_helper_drm_fd = -1;
 
    if (e_devmgr_dpy->tdm)
       tdm_display_deinit(e_devmgr_dpy->tdm);
