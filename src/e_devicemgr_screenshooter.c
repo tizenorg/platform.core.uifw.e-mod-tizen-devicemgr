@@ -188,27 +188,21 @@ static E_Devmgr_Buf*
 _e_tz_screenmirror_ui_buffer_get(E_Mirror *mirror)
 {
    E_Devmgr_Buf *mbuf;
+   Ecore_Drm_Fb *fb;
    Eina_List *l;
-   drmModeFBPtr fb;
-   int fd;
-   unsigned int fb_id;
 
-   fd = ecore_drm_device_fd_get(mirror->drm_device);
-   fb_id = ecore_drm_output_crtc_buffer_get(mirror->drm_output);
-   fb = drmModeGetFB(fd, fb_id);
+   fb = ecore_drm_display_output_primary_layer_fb_get(mirror->drm_output);
    EINA_SAFETY_ON_NULL_RETURN_VAL(fb, NULL);
 
    EINA_LIST_FOREACH(mirror->ui_buffer_list, l, mbuf)
-     if (mbuf->handles[0] == fb->handle)
+     if (mbuf->tbm_surface == fb->hal_buffer)
        return mbuf;
 
-   mbuf = e_devmgr_buffer_create_hnd(fb->handle, fb->width, fb->height, fb->pitch);
+   mbuf = e_devmgr_buffer_create_tbm(fb->hal_buffer);
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
    e_devmgr_buffer_free_func_add(mbuf, _e_tz_screenmirror_ui_buffer_cb_free, mirror);
    mirror->ui_buffer_list = eina_list_append(mirror->ui_buffer_list, mbuf);
-
-   free(fb);
 
    return mbuf;
 }
