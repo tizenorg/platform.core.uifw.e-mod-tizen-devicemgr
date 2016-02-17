@@ -58,6 +58,7 @@ typedef struct _E_Devmgr_Buf
 } E_Devmgr_Buf;
 
 E_Devmgr_Buf* _e_devmgr_buffer_create     (struct wl_resource *resource, const char *func);
+E_Devmgr_Buf* _e_devmgr_buffer_create_tbm (tbm_surface_h tbm_surface, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_create_hnd (uint handle, int width, int height, int pitch, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_alloc      (int width, int height, tbm_format tbmfmt, Eina_Bool scanout, const char *func);
 E_Devmgr_Buf* _e_devmgr_buffer_ref        (E_Devmgr_Buf *mbuf, const char *func);
@@ -65,6 +66,7 @@ void          _e_devmgr_buffer_unref      (E_Devmgr_Buf *mbuf, const char *func)
 Eina_Bool     _e_devmgr_buffer_valid      (E_Devmgr_Buf *mbuf, const char *func);
 
 #define e_devmgr_buffer_create(r)         _e_devmgr_buffer_create(r,__FUNCTION__)
+#define e_devmgr_buffer_create_tbm(t)     _e_devmgr_buffer_create_tbm(t,__FUNCTION__)
 #define e_devmgr_buffer_create_hnd(d,w,h,p) _e_devmgr_buffer_create_hnd(d,w,h,p,__FUNCTION__)
 #define e_devmgr_buffer_alloc(w,h,f,s)      _e_devmgr_buffer_alloc(w,h,f,s,__FUNCTION__)
 #define e_devmgr_buffer_ref(b)            _e_devmgr_buffer_ref(b,__FUNCTION__)
