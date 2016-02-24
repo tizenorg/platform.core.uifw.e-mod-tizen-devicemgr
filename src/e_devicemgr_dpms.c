@@ -1,10 +1,8 @@
 #include <e.h>
 #include <Ecore_Drm.h>
-#include <tdm.h>
 #include "e_mod_main.h"
 #include "e_devicemgr_privates.h"
 #include "e_devicemgr_dpms.h"
-#include "e_devicemgr_tdm.h"
 
 typedef enum _E_Devicemgr_Dpms_Mode
 {
@@ -66,7 +64,6 @@ _e_devicemgr_dpms_set_cb(const Eldbus_Service_Interface *iface, const Eldbus_Mes
 
                dpms_output = output;
                dpms_value = uint32;
-               tdm_output_set_dpms(e_devicemgr_tdm_output_get(output), uint32);
                ecore_drm_output_dpms_set(output, uint32);
                ecore_evas_manual_render_set(e_comp->ee,
                                             (uint32 > 0) ? EINA_TRUE : EINA_FALSE);
