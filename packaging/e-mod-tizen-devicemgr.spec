@@ -1,4 +1,3 @@
-%bcond_with x
 %bcond_with wayland
 
 Name: e-mod-tizen-devicemgr
@@ -14,19 +13,6 @@ BuildRequires: pkgconfig(elementary)
 BuildRequires: pkgconfig(dlog)
 BuildRequires: pkgconfig(cairo)
 BuildRequires: pkgconfig(ttrace)
-%if %{with x}
-BuildRequires: pkgconfig(x11)
-BuildRequires: pkgconfig(xextproto)
-BuildRequires: pkgconfig(xfixes)
-BuildRequires: pkgconfig(xext)
-BuildRequires: pkgconfig(xrandr)
-BuildRequires: pkgconfig(evas)
-BuildRequires: pkgconfig(xi)
-BuildRequires: pkgconfig(xtst)
-BuildRequires: pkgconfig(utilX)
-Requires: libX11
-%endif
-
 %if %{with wayland}
 BuildRequires: pkgconfig(libtbm)
 BuildRequires: pkgconfig(libtdm)
@@ -52,8 +38,6 @@ export LDFLAGS+=" -Wl,--hash-style=both -Wl,--as-needed -Wl,--rpath=/usr/lib"
 
 %if %{with wayland}
 %reconfigure --enable-wayland-only
-%else
-%reconfigure 
 %endif
 
 make
