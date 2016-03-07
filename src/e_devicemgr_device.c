@@ -366,8 +366,24 @@ _e_devicemgr_block_check_pointer(int type, void *event)
    if ((input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLAS_MOUSE) ||
        (input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLAS_TOUCHSCREEN))
      {
+        if (type == ECORE_EVENT_MOUSE_BUTTON_UP &&
+            (input_devmgr_data->pressed_button & (1 << ev->buttons)))
+          {
+             input_devmgr_data->pressed_button &= ~(1 << ev->buttons);
+             return ECORE_CALLBACK_PASS_ON;
+          }
         return ECORE_CALLBACK_DONE;
      }
+
+   if (type == ECORE_EVENT_MOUSE_BUTTON_DOWN)
+     {
+        input_devmgr_data->pressed_button |= (1 << ev->buttons);
+     }
+   else if(type == ECORE_EVENT_MOUSE_BUTTON_UP)
+     {
+        input_devmgr_data->pressed_button &= ~(1 << ev->buttons);
+     }
+
    return ECORE_CALLBACK_PASS_ON;
 }
 

@@ -31,6 +31,8 @@ struct _e_devicemgr_input_devmgr_data
    unsigned int block_devtype;
    struct wl_client *block_client;
    Ecore_Timer *duration_timer;
+
+   unsigned int pressed_button;
 };
 
 int e_devicemgr_device_init(void);
