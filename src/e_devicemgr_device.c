@@ -5,6 +5,72 @@ static Eina_List *handlers = NULL;
 
 e_devicemgr_input_devmgr_data *input_devmgr_data;
 
+#ifdef ENABLE_CYNARA
+static void _e_devicemgr_util_cynara_log(const char *func_name, int err);
+static Eina_Bool _e_devicemgr_util_do_privilege_check(struct wl_client *client, int socket_fd);
+
+#define E_DEVMGR_CYNARA_ERROR_CHECK_GOTO(func_name, ret, label) \
+  do \
+    { \
+       if (EINA_UNLIKELY(CYNARA_API_SUCCESS != ret)) \
+          { \
+             _e_devicemgr_util_cynara_log(func_name, ret); \
+             goto label; \
+          } \
+    } \
+  while (0)
+
+static void
+_e_devicemgr_util_cynara_log(const char *func_name, int err)
+{
+#define CYNARA_BUFSIZE 128
+   char buf[CYNARA_BUFSIZE] = "\0";
+   int ret;
+
+   ret = cynara_strerror(err, buf, CYNARA_BUFSIZE);
+   if (ret != CYNARA_API_SUCCESS)
+     {
+        DMDBG("Failed to cynara_strerror: %d (error log about %s: %d)\n", ret, func_name, err);
+        return;
+     }
+   DMDBG("%s is failed: %s\n", func_name, buf);
+}
+
+static Eina_Bool
+_e_devicemgr_util_do_privilege_check(struct wl_client *client, int socket_fd)
+{
+   int ret, pid;
+   char *clientSmack=NULL, *uid=NULL, *client_session=NULL;
+   Eina_Bool res = EINA_FALSE;
+
+   /* If initialization of cynara has been failed, let's not to do further permission checks. */
+   if (input_devmgr_data->p_cynara == NULL && input_devmgr_data->cynara_initialized) return EINA_TRUE;
+
+   ret = cynara_creds_socket_get_client(socket_fd, CLIENT_METHOD_SMACK, &clientSmack);
+   E_DEVMGR_CYNARA_ERROR_CHECK_GOTO("cynara_creds_socket_get_client", ret, finish);
+
+   ret = cynara_creds_socket_get_user(socket_fd, USER_METHOD_UID, &uid);
+   E_DEVMGR_CYNARA_ERROR_CHECK_GOTO("cynara_creds_socket_get_user", ret, finish);
+
+   ret = cynara_creds_socket_get_pid(socket_fd, &pid);
+   E_DEVMGR_CYNARA_ERROR_CHECK_GOTO("cynara_creds_socket_get_pid", ret, finish);
+
+   client_session = cynara_session_from_pid(pid);
+
+   ret = cynara_check(input_devmgr_data->p_cynara, clientSmack, client_session, uid, "http://tizen.org/privilege/internal/inputdevice.block");
+
+   if (CYNARA_API_ACCESS_ALLOWED == ret)
+        res = EINA_TRUE;
+
+finish:
+   E_FREE(client_session);
+   E_FREE(clientSmack);
+   E_FREE(uid);
+
+   return res;
+}
+#endif
+
 static void
 _e_device_mgr_device_cb_axes_select(struct wl_client *client, struct wl_resource *resource, struct wl_array *axes)
 {
@@ -129,7 +195,7 @@ _e_devicemgr_add_device(const char *name, const char *identifier, const char *se
         res = wl_resource_create(wc, &tizen_input_device_interface, 1, 0);
         if (!res)
           {
-             ERR("Could not create tizen_input_device resource");
+             DMERR("Could not create tizen_input_device resource");
              TRACE_INPUT_END();
              return;
           }
@@ -184,9 +250,86 @@ _cb_device_del(void *data EINA_UNUSED, int type EINA_UNUSED, void *event)
    return ECORE_CALLBACK_PASS_ON;
 }
 
+static Eina_Bool
+_e_devicemgr_block_check_pointer(int type, void *event)
+{
+   Ecore_Event_Mouse_Button *ev;
+
+   ev = event;
+   EINA_SAFETY_ON_NULL_RETURN_VAL(ev, ECORE_CALLBACK_PASS_ON);
+
+   if ((input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLAS_MOUSE) ||
+       (input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLAS_TOUCHSCREEN))
+     {
+        if (type == ECORE_EVENT_MOUSE_BUTTON_UP &&
+            (input_devmgr_data->pressed_button & (1 << ev->buttons)))
+          {
+             input_devmgr_data->pressed_button &= ~(1 << ev->buttons);
+             return ECORE_CALLBACK_PASS_ON;
+          }
+           return ECORE_CALLBACK_DONE;
+     }
+
+   if (type == ECORE_EVENT_MOUSE_BUTTON_DOWN)
+     {
+        input_devmgr_data->pressed_button |= (1 << ev->buttons);
+     }
+   else if(type == ECORE_EVENT_MOUSE_BUTTON_UP)
+     {
+        input_devmgr_data->pressed_button &= ~(1 << ev->buttons);
+     }
+
+   return ECORE_CALLBACK_PASS_ON;
+}
+
+static Eina_Bool
+_e_devicemgr_block_check_keyboard(int type, void *event)
+{
+   Ecore_Event_Key *ev;
+
+   ev = event;
+   EINA_SAFETY_ON_NULL_RETURN_VAL(ev, ECORE_CALLBACK_PASS_ON);
+
+   if (input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLAS_KEYBOARD)
+     {
+        return ECORE_CALLBACK_DONE;
+     }
+
+   return ECORE_CALLBACK_PASS_ON;
+}
+
+static Eina_Bool
+_e_devicemgr_event_filter(void *data, void *loop_data EINA_UNUSED, int type, void *event)
+{
+   (void) data;
+
+   if (ECORE_EVENT_KEY_DOWN == type || ECORE_EVENT_KEY_UP == type)
+     {
+        if ((!input_devmgr_data->block_devtype) || (!input_devmgr_data->block_client))
+          {
+             return ECORE_CALLBACK_PASS_ON;
+          }
+        return _e_devicemgr_block_check_keyboard(type, event);
+     }
+   else if(ECORE_EVENT_MOUSE_BUTTON_DOWN == type ||
+           ECORE_EVENT_MOUSE_BUTTON_UP == type ||
+           ECORE_EVENT_MOUSE_MOVE == type)
+     {
+        if ((!input_devmgr_data->block_devtype) || (!input_devmgr_data->block_client))
+          {
+             return ECORE_CALLBACK_PASS_ON;
+          }
+        return _e_devicemgr_block_check_pointer(type, event);
+     }
+
+   return ECORE_CALLBACK_PASS_ON;
+}
+
 static void
 _e_input_devmgr_request_client_remove(struct wl_client *client)
 {
+   if (client != input_devmgr_data->block_client) return;
+
    input_devmgr_data->block_devtype = 0x0;
    if (input_devmgr_data->duration_timer)
      {
@@ -251,9 +394,15 @@ _e_input_devmgr_cb_block_events(struct wl_client *client, struct wl_resource *re
    uint32_t all_class = TIZEN_INPUT_DEVICE_MANAGER_CLAS_MOUSE |
                         TIZEN_INPUT_DEVICE_MANAGER_CLAS_KEYBOARD |
                         TIZEN_INPUT_DEVICE_MANAGER_CLAS_TOUCHSCREEN;
-   /* TODO: Only permitted client could block input devices.
-    *       Check privilege in here
-    */
+
+#ifdef ENABLE_CYNARA
+   if (EINA_FALSE == _e_devicemgr_util_do_privilege_check(client, wl_client_get_fd(client)))
+     {
+        DMERR("_e_input_devmgr_cb_block_events:priv check failed");
+        return;
+     }
+#endif
+
    if ((input_devmgr_data->block_client) && (input_devmgr_data->block_client != client))
      {
         tizen_input_device_manager_send_error(resource, TIZEN_INPUT_DEVICE_MANAGER_ERROR_BLOCKED_ALREADY);
@@ -274,9 +423,13 @@ static void
 _e_input_devmgr_cb_unblock_events(struct wl_client *client, struct wl_resource *resource,
                              uint32_t serial)
 {
-   /* TODO: Only permitted client could block input devices.
-    *       Check privilege in here
-    */
+#ifdef ENABLE_CYNARA
+   if (EINA_FALSE == _e_devicemgr_util_do_privilege_check(client, wl_client_get_fd(client)))
+     {
+        DMERR("_e_input_devmgr_cb_unblock_events:priv check failed");
+        return;
+     }
+#endif
 
   if ((input_devmgr_data->block_client) && (input_devmgr_data->block_client != client))
     {
@@ -314,7 +467,7 @@ _e_devicemgr_device_mgr_cb_bind(struct wl_client *client, void *data, uint32_t v
 
    if (!(res = wl_resource_create(client, &tizen_input_device_manager_interface, MIN(version, 1), id)))
      {
-        ERR("Could not create tizen_devices_interface resource: %m");
+        DMERR("Could not create tizen_devices_interface resource: %m");
         wl_client_post_no_memory(client);
         return;
      }
@@ -329,7 +482,7 @@ _e_devicemgr_device_mgr_cb_bind(struct wl_client *client, void *data, uint32_t v
 
    if (!seat_res)
      {
-        ERR("Could not find seat resource bound to the tizen_input_device_manager");
+        DMERR("Could not find seat resource bound to the tizen_input_device_manager");
         return;
      }
 
@@ -341,7 +494,7 @@ _e_devicemgr_device_mgr_cb_bind(struct wl_client *client, void *data, uint32_t v
         device_res = wl_resource_create(client, &tizen_input_device_interface, 1, 0);
         if (!device_res)
           {
-             ERR("Could not create tizen_input_device resource: %m");
+             DMERR("Could not create tizen_input_device resource: %m");
              return;
           }
 
@@ -355,60 +508,11 @@ _e_devicemgr_device_mgr_cb_bind(struct wl_client *client, void *data, uint32_t v
      }
 }
 
-static Eina_Bool
-_e_devicemgr_block_check_pointer(int type, void *event)
-{
-   Ecore_Event_Mouse_Button *ev;
-
-   ev = event;
-   EINA_SAFETY_ON_NULL_RETURN_VAL(ev, ECORE_CALLBACK_PASS_ON);
-
-   if ((input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLAS_MOUSE) ||
-       (input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLAS_TOUCHSCREEN))
-     {
-        return ECORE_CALLBACK_DONE;
-     }
-   return ECORE_CALLBACK_PASS_ON;
-}
-
-static Eina_Bool
-_e_devicemgr_block_check_keyboard(int type, void *event)
-{
-   Ecore_Event_Key *ev;
-
-   ev = event;
-   EINA_SAFETY_ON_NULL_RETURN_VAL(ev, ECORE_CALLBACK_PASS_ON);
-
-   if (input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLAS_KEYBOARD)
-     {
-        return ECORE_CALLBACK_DONE;
-     }
-   return ECORE_CALLBACK_PASS_ON;
-}
-
-static Eina_Bool
-_e_devicemgr_event_filter(void *data, void *loop_data EINA_UNUSED, int type, void *event)
-{
-   (void) data;
-
-   /* Filter only for key down/up event */
-   if (ECORE_EVENT_KEY_DOWN == type || ECORE_EVENT_KEY_UP == type)
-     {
-        return _e_devicemgr_block_check_keyboard(type, event);
-     }
-   else if(ECORE_EVENT_MOUSE_BUTTON_DOWN == type ||
-           ECORE_EVENT_MOUSE_BUTTON_UP == type ||
-           ECORE_EVENT_MOUSE_MOVE == type)
-     {
-        return _e_devicemgr_block_check_pointer(type, event);
-     }
-
-   return ECORE_CALLBACK_PASS_ON;
-}
-
 int
 e_devicemgr_device_init(void)
 {
+   int ret;
+
    if (!e_comp) return 0;
    if (!e_comp_wl) return 0;
    if (!e_comp_wl->wl.disp) return 0;
@@ -420,7 +524,7 @@ e_devicemgr_device_init(void)
                          NULL, _e_devicemgr_device_mgr_cb_bind);
    if (!e_comp_wl->input_device_manager.global)
      {
-        ERR("Could not add tizen_input_device_manager to wayland globals");
+        DMERR("Could not add tizen_input_device_manager to wayland globals");
         TRACE_INPUT_END();
         return 0;
      }
@@ -430,12 +534,24 @@ e_devicemgr_device_init(void)
    E_LIST_HANDLER_APPEND(handlers, ECORE_EVENT_DEVICE_ADD, _cb_device_add, NULL);
    E_LIST_HANDLER_APPEND(handlers, ECORE_EVENT_DEVICE_DEL, _cb_device_del, NULL);
 
-   ecore_event_filter_add(NULL, _e_devicemgr_event_filter, NULL, NULL);
-
    input_devmgr_data = E_NEW(e_devicemgr_input_devmgr_data, 1);
    EINA_SAFETY_ON_NULL_RETURN_VAL(input_devmgr_data, 0);
 
    input_devmgr_data->block_devtype = 0x0;
+
+   /* initialization of cynara for checking privilege */
+#ifdef ENABLE_CYNARA
+   ret = cynara_initialize(&input_devmgr_data->p_cynara, NULL);
+   if (EINA_UNLIKELY(CYNARA_API_SUCCESS != ret))
+     {
+        _e_devicemgr_util_cynara_log("cynara_initialize", ret);
+        input_devmgr_data->p_cynara = NULL;
+     }
+   input_devmgr_data->cynara_initialized = EINA_TRUE;
+#endif
+
+   /* add event filter for blocking events */
+   input_devmgr_data->event_filter = ecore_event_filter_add(NULL, _e_devicemgr_event_filter, NULL, NULL);
 
    TRACE_INPUT_END();
    return 1;
@@ -445,4 +561,14 @@ void
 e_devicemgr_device_fini(void)
 {
    E_FREE_LIST(handlers, ecore_event_handler_del);
+
+    /* remove existing event filter */
+   ecore_event_filter_del(input_devmgr_data->event_filter);
+   input_devmgr_data->event_filter = NULL;
+
+   /* deinitialization of cynara if it has been initialized */
+#ifdef ENABLE_CYNARA
+   if (input_devmgr_data->p_cynara) cynara_finish(input_devmgr_data->p_cynara);
+   input_devmgr_data->cynara_initialized = EINA_FALSE;
+#endif
 }
