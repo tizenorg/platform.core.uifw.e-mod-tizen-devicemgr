@@ -22,6 +22,8 @@ BuildRequires: pkgconfig(wayland-server)
 BuildRequires: pkgconfig(screenshooter-server)
 BuildRequires: pkgconfig(tizen-extension-server)
 BuildRequires: pkgconfig(wayland-tbm-server)
+BuildRequires:  pkgconfig(cynara-client)
+BuildRequires:  pkgconfig(cynara-creds-socket)
 %endif
 
 %description
@@ -37,7 +39,7 @@ export CFLAGS+=" -Wall -Werror -g -fPIC -rdynamic ${GC_SECTIONS_FLAGS} -DE_LOGGI
 export LDFLAGS+=" -Wl,--hash-style=both -Wl,--as-needed -Wl,--rpath=/usr/lib"
 
 %if %{with wayland}
-%reconfigure --enable-wayland-only
+%reconfigure --enable-wayland-only --enable-cynara
 %endif
 
 make

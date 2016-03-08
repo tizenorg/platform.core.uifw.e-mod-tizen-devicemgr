@@ -108,6 +108,17 @@ AC_ARG_ENABLE(homedir-install,
 	[ datadir="${HOME}/.e/e/modules/${PACKAGE}" ]
 )
 
+have_cynara=no
+AC_ARG_ENABLE(cynara,
+	AS_HELP_STRING([--enable-cynara], [enable cynara]),
+	[have_cynara=$enableval],
+	[have_cynara=no]
+)
+if test "x${have_cynara}" = "xyes"; then
+	PKG_CHECK_MODULES(CYNARA, [cynara-client, cynara-creds-socket, cynara-session])
+	AC_DEFINE([ENABLE_CYNARA],[1],[enable cynara])
+fi
+
 dnl ========================================================================
 # output files
 dnl ========================================================================
