@@ -33,7 +33,7 @@ struct _E_Video
    Ecore_Window window;
    Ecore_Drm_Output *drm_output;
    tdm_output *output;
-   tdm_output *layer;
+   tdm_layer *layer;
 
    /* input info */
    tbm_format tbmfmt;
@@ -53,7 +53,10 @@ struct _E_Video
    Eina_Rectangle pp_r;    /* converter dst content rect */
    Eina_List *pp_buffer_list;
    Eina_List *next_buffer;
+
+   int output_align;
    int pp_align;
+   int video_align;
 
    /* vblank handling */
    Eina_Bool   wait_vblank;
@@ -200,32 +203,35 @@ _e_video_input_buffer_get(E_Video *video, E_Comp_Wl_Buffer *comp_buffer, Eina_Bo
    mbuf = e_devmgr_buffer_create(comp_buffer->resource);
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
-   if (video->pp && (mbuf->width % video->pp_align))
+   if (video->pp)
      {
-        int aligned_width = ROUNDUP(mbuf->width, video->pp_align);
-        E_Devmgr_Buf *temp, *temp2;
-
-        temp = e_devmgr_buffer_alloc(aligned_width, mbuf->height, mbuf->tbmfmt, scanout);
-        if (!temp)
+        if (video->pp_align != -1 && (mbuf->width_from_pitch % video->pp_align))
           {
-             e_devmgr_buffer_unref(mbuf);
-             return NULL;
-          }
+             E_Devmgr_Buf *temp, *temp2;
+             int aligned_width = ROUNDUP(mbuf->width_from_pitch, video->pp_align);
 
-        VDB("copy mbuf(%d,%dx%d) => mbuf(%d,%dx%d)",
-            MSTAMP(mbuf), mbuf->width, mbuf->height,
-            MSTAMP(temp), temp->width, temp->height);
+             temp = e_devmgr_buffer_alloc(aligned_width, mbuf->height, mbuf->tbmfmt, scanout);
+             if (!temp)
+               {
+                  e_devmgr_buffer_unref(mbuf);
+                  return NULL;
+               }
 
-        e_devmgr_buffer_copy(mbuf, temp);
-        temp2 = mbuf;
-        mbuf = temp;
-        e_devmgr_buffer_unref(temp2);
+             VDB("copy mbuf(%d,%dx%d) => mbuf(%d,%dx%d)",
+                 MSTAMP(mbuf), mbuf->width_from_pitch, mbuf->height,
+                 MSTAMP(temp), temp->width, temp->height);
 
-        video->geo.input_w = mbuf->width_from_pitch;
+             e_devmgr_buffer_copy(mbuf, temp);
+             temp2 = mbuf;
+             mbuf = temp;
+             e_devmgr_buffer_unref(temp2);
+
+             video->geo.input_w = mbuf->width_from_pitch;
 #ifdef DUMP_BUFFER
-        static int i;
-        e_devmgr_buffer_dump(mbuf, "copy", i++, 0);
+             static int i;
+             e_devmgr_buffer_dump(mbuf, "copy", i++, 0);
 #endif
+          }
      }
 
    mbuf->comp_buffer = comp_buffer;
@@ -286,6 +292,12 @@ _e_video_pp_buffer_get(E_Video *video, int width, int height)
    E_Devmgr_Buf *mbuf;
    Eina_List *l;
    int i = 0;
+   int aligned_width;
+
+   if (video->video_align != -1)
+     aligned_width = ROUNDUP(width, video->video_align);
+   else
+     aligned_width = width;
 
    if (video->pp_buffer_list)
      {
@@ -293,10 +305,14 @@ _e_video_pp_buffer_get(E_Video *video, int width, int height)
         EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
         /* if we need bigger pp_buffers, destroy all pp_buffers and create */
-        if (width > (mbuf->width_from_pitch))
+        if (aligned_width != mbuf->width_from_pitch || height != mbuf->height)
           {
              E_Video_Fb *vfb;
              Eina_List *ll;
+
+             VIN("pp buffer changed: %dx%d => %dx%d",
+                 mbuf->width_from_pitch, mbuf->height,
+                 aligned_width, height);
 
              EINA_LIST_FOREACH_SAFE(video->pp_buffer_list, l, ll, mbuf)
                {
@@ -318,15 +334,17 @@ _e_video_pp_buffer_get(E_Video *video, int width, int height)
 
    if (!video->pp_buffer_list)
      {
-        VDB("pp format: %c%c%c%c", FOURCC_STR(video->pp_tbmfmt));
         for (i = 0; i < BUFFER_MAX_COUNT; i++)
           {
-             mbuf = e_devmgr_buffer_alloc(width, height, video->pp_tbmfmt, EINA_TRUE);
+             mbuf = e_devmgr_buffer_alloc(aligned_width, height, video->pp_tbmfmt, EINA_TRUE);
              EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
              e_devmgr_buffer_free_func_add(mbuf, _e_video_pp_buffer_cb_free, video);
              video->pp_buffer_list = eina_list_append(video->pp_buffer_list, mbuf);
           }
+
+        VIN("pp buffer created: %dx%d, %c%c%c%c",
+            mbuf->width_from_pitch, height, FOURCC_STR(video->pp_tbmfmt));
 
         video->next_buffer = video->pp_buffer_list;
      }
@@ -457,7 +475,9 @@ _e_video_geometry_cal_viewport(E_Video *video)
         video->geo.output_r.x = ec->x;
         video->geo.output_r.y = ec->y;
      }
+
    video->geo.output_r.w = ec->comp_data->width_from_viewport;
+   video->geo.output_r.w = (video->geo.output_r.w + 1) & ~1;
    video->geo.output_r.h = ec->comp_data->height_from_viewport;
 
    e_comp_object_frame_xy_unadjust(ec->frame,
@@ -525,15 +545,17 @@ _e_video_geometry_cal_map(E_Video *video)
    evas_map_point_coord_get(m, 0, &x1, &y1, NULL);
    evas_map_point_coord_get(m, 2, &x2, &y2, NULL);
 
-   VDB("frame(%p) m(%p) output(%d,%d %dx%d) => (%d,%d %dx%d)",
-       ec->frame, m, video->geo.output_r.x, video->geo.output_r.y,
-       video->geo.output_r.w, video->geo.output_r.h,
-       x1, y1, x2 - x1, y2 - y1);
-
    video->geo.output_r.x = x1;
    video->geo.output_r.y = y1;
    video->geo.output_r.w = x2 - x1;
+   video->geo.output_r.w = (video->geo.output_r.w + 1) & ~1;
    video->geo.output_r.h = y2 - y1;
+
+   VDB("frame(%p) m(%p) output(%d,%d %dx%d) => (%d,%d %dx%d)",
+       ec->frame, m, video->geo.output_r.x, video->geo.output_r.y,
+       video->geo.output_r.w, video->geo.output_r.h,
+       video->geo.output_r.x, video->geo.output_r.y,
+       video->geo.output_r.w, video->geo.output_r.h);
 }
 
 static void
@@ -590,13 +612,16 @@ _e_video_frame_buffer_destroy(E_Video_Fb *vfb)
 static void
 _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
 {
-   tdm_info_layer info;
+   tdm_info_layer info, old_info;
 
    if (!vfb)
      {
         tdm_layer_unset_buffer(video->layer);
         return;
      }
+
+   CLEAR(old_info);
+   tdm_layer_get_info(video->layer, &old_info);
 
    CLEAR(info);
    info.src_config.size.h = vfb->mbuf->width_from_pitch;
@@ -611,14 +636,11 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
    info.dst_pos.h = video->geo.output_r.h;
    info.transform = vfb->transform;
 
-   tdm_layer_set_info(video->layer, &info);
+   if (memcmp(&old_info, &info, sizeof(tdm_info_layer)))
+     tdm_layer_set_info(video->layer, &info);
+
    tdm_layer_set_buffer(video->layer, vfb->mbuf->tbm_surface);
    tdm_output_commit(video->output, 0, NULL, NULL);
-
-   VDB("(%dx%d,[%d,%d,%d,%d]=>[%d,%d,%d,%d])",
-       info.src_config.size.h, info.src_config.size.h,
-       info.src_config.pos.x, info.src_config.pos.y, info.src_config.pos.w, info.src_config.pos.h,
-       info.dst_pos.x, info.dst_pos.y, info.dst_pos.w, info.dst_pos.h);
 }
 
 static void
@@ -716,7 +738,9 @@ _e_video_create(struct wl_resource *video_object, struct wl_resource *surface)
 
    video->video_object = video_object;
    video->surface = surface;
-
+   video->output_align = -1;
+   video->pp_align = -1;
+   video->video_align = -1;
    VIN("create. wl_surface@%d", wl_resource_get_id(video->surface));
 
    ec->comp_data->video_client = 1;
@@ -731,8 +755,8 @@ _e_video_create(struct wl_resource *video_object, struct wl_resource *surface)
 static void
 _e_video_set(E_Video *video, E_Client *ec)
 {
-   int ominw = -1, ominh = -1, omaxw = -1, omaxh = -1, oalign = -1;
-   int pminw = -1, pminh = -1, pmaxw = -1, pmaxh = -1, palign = -1;
+   int ominw = -1, ominh = -1, omaxw = -1, omaxh = -1;
+   int pminw = -1, pminh = -1, pmaxw = -1, pmaxh = -1;
    int i, count = 0;
    const tdm_prop *props;
    tdm_error ret;
@@ -763,47 +787,52 @@ _e_video_set(E_Video *video, E_Client *ec)
       video->layer = e_devicemgr_tdm_avaiable_overlay_layer_get(video->output);
    EINA_SAFETY_ON_NULL_RETURN(video->layer);
 
-   tdm_output_get_available_size(video->output, &ominw, &ominh, &omaxw, &omaxh, &oalign);
-   ret = tdm_display_get_pp_available_size(e_devmgr_dpy->tdm, &pminw, &pminh, &pmaxw, &pmaxh, &palign);
+   tdm_output_get_available_size(video->output, &ominw, &ominh, &omaxw, &omaxh, &video->output_align);
+   ret = tdm_display_get_pp_available_size(e_devmgr_dpy->tdm, &pminw, &pminh, &pmaxw, &pmaxh, &video->pp_align);
 
    if (ret != TDM_ERROR_NONE)
-      tizen_video_object_send_size(video->video_object,
-                                   ominw, ominh, omaxw, omaxh, oalign);
+     {
+        video->video_align = video->output_align;
+        tizen_video_object_send_size(video->video_object,
+                                     ominw, ominh, omaxw, omaxh, video->output_align);
+     }
    else
-   {
-      int minw = -1, minh = -1, maxw = -1, maxh = -1, align = -1;
+     {
+        int minw = -1, minh = -1, maxw = -1, maxh = -1;
 
-      minw = MAX(ominw, pminw);
-      minh = MAX(ominh, pminh);
+        minw = MAX(ominw, pminw);
+        minh = MAX(ominh, pminh);
 
-      if (omaxw != -1 && pmaxw == -1)
-         maxw = omaxw;
-      else if (omaxw == -1 && pmaxw != -1)
-         maxw = pmaxw;
-      else
-         maxw = MIN(omaxw, pmaxw);
+        if (omaxw != -1 && pmaxw == -1)
+           maxw = omaxw;
+        else if (omaxw == -1 && pmaxw != -1)
+           maxw = pmaxw;
+        else
+           maxw = MIN(omaxw, pmaxw);
 
-      if (omaxh != -1 && pmaxh == -1)
-         maxw = omaxh;
-      else if (omaxh == -1 && pmaxh != -1)
-         maxw = pmaxh;
-      else
-         maxh = MIN(omaxh, pmaxh);
+        if (omaxh != -1 && pmaxh == -1)
+           maxw = omaxh;
+        else if (omaxh == -1 && pmaxh != -1)
+           maxw = pmaxh;
+        else
+           maxh = MIN(omaxh, pmaxh);
 
-      if (oalign != -1 && palign == -1)
-         align = oalign;
-      else if (oalign == -1 && palign != -1)
-         align = palign;
-      else if (oalign == -1 && palign == -1)
-         align = palign;
-      else if (oalign > 0 && palign > 0)
-         align = lcm(oalign, palign);
-      else
-         ERR("invalid align: %d, %d", oalign, palign);
+        if (video->output_align != -1 && video->pp_align == -1)
+           video->video_align = video->output_align;
+        else if (video->output_align == -1 && video->pp_align != -1)
+           video->video_align = video->pp_align;
+        else if (video->output_align == -1 && video->pp_align == -1)
+           video->video_align = video->pp_align;
+        else if (video->output_align > 0 && video->pp_align > 0)
+           video->video_align = lcm(video->output_align, video->pp_align);
+        else
+           ERR("invalid align: %d, %d", video->output_align, video->pp_align);
 
-      tizen_video_object_send_size(video->video_object,
-                                   minw, minh, maxw, maxh, align);
-   }
+        tizen_video_object_send_size(video->video_object,
+                                     minw, minh, maxw, maxh, video->video_align);
+        VIN("align width: output(%d) pp(%d) video(%d)",
+            video->output_align, video->pp_align, video->video_align);
+     }
 
    tdm_layer_get_available_properties(video->layer, &props, &count);
    for (i = 0; i < count; i++)
@@ -812,7 +841,6 @@ _e_video_set(E_Video *video, E_Client *ec)
         tdm_layer_get_property(video->layer, props[i].id, &value);
         tizen_video_object_send_attribute(video->video_object, props[i].name, value.u32);
      }
-
 
    VIN("prepare. wl_surface@%d", wl_resource_get_id(video->surface));
 }
@@ -1007,12 +1035,6 @@ _e_video_render(E_Video *video)
        video->old_geo.transform != video->geo.transform)
      {
         tdm_info_pp info;
-
-        VDB("geometry(%dx%d %d,%d,%d,%d %d,%d,%d,%d %d)",
-            video->geo.input_w, video->geo.input_h,
-            video->geo.input_r.x, video->geo.input_r.y, video->geo.input_r.w, video->geo.input_r.h,
-            video->geo.output_r.x, video->geo.output_r.y, video->geo.output_r.w, video->geo.output_r.h,
-            video->geo.transform);
 
         CLEAR(info);
         info.src_config.size.h = video->geo.input_w;

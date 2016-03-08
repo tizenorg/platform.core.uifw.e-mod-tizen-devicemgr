@@ -24,6 +24,17 @@
 #define TRACE_INPUT_END()
 #endif
 
+#define DMERR(msg, ARG...) ERR("[tizen_devicemgr][%s:%d] "msg, __FUNCTION__, __LINE__, ##ARG)
+#define DMWRN(msg, ARG...) WRN("[tizen_devicemgr][%s:%d] "msg, __FUNCTION__, __LINE__, ##ARG)
+#define DMINF(msg, ARG...) INF("[tizen_devicemgr][%s:%d] "msg, __FUNCTION__, __LINE__, ##ARG)
+#define DMDBG(msg, ARG...) DBG("[tizen_devicemgr][%s:%d] "msg, __FUNCTION__, __LINE__, ##ARG)
+
+#ifdef ENABLE_CYNARA
+#include <cynara-session.h>
+#include <cynara-client.h>
+#include <cynara-creds-socket.h>
+#endif
+
 typedef struct _e_devicemgr_input_devmgr_data e_devicemgr_input_devmgr_data;
 
 struct _e_devicemgr_input_devmgr_data
@@ -31,6 +42,13 @@ struct _e_devicemgr_input_devmgr_data
    unsigned int block_devtype;
    struct wl_client *block_client;
    Ecore_Timer *duration_timer;
+   Ecore_Event_Filter *event_filter;
+#ifdef ENABLE_CYNARA
+   cynara *p_cynara;
+   Eina_Bool cynara_initialized;
+#endif
+
+   unsigned int pressed_button;
 };
 
 int e_devicemgr_device_init(void);
