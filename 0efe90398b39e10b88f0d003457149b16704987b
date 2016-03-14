@@ -25,6 +25,14 @@ Branch: refs/heads/tizen
 Verified+1: Sung-Jin Park <sj76.park@samsung.com>
 Code-Review+2: SooChan Lim <sc1.lim@samsung.com>
 Submitted-by: SooChan Lim <sc1.lim@samsung.com>
+Submitted-at: Thu, 10 Mar 2016 23:37:20 -0700
+Reviewed-on: https://review.tizen.org/gerrit/61838
+Project: platform/core/uifw/e-mod-tizen-devicemgr
+Branch: refs/heads/tizen
+
+Verified+1: Sung-Jin Park <sj76.park@samsung.com>
+Code-Review+2: SooChan Lim <sc1.lim@samsung.com>
+Submitted-by: SooChan Lim <sc1.lim@samsung.com>
 Submitted-at: Thu, 10 Mar 2016 22:37:20 -0800
 Reviewed-on: https://review.tizen.org/gerrit/61838
 Project: platform/core/uifw/e-mod-tizen-devicemgr
