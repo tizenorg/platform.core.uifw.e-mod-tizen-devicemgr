@@ -9,9 +9,7 @@ Group: Graphics & UI Framework/Other
 Source0: %{name}-%{version}.tar.gz
 License: BSD-2-Clause
 BuildRequires: pkgconfig(enlightenment)
-BuildRequires: pkgconfig(elementary)
 BuildRequires: pkgconfig(dlog)
-BuildRequires: pkgconfig(cairo)
 BuildRequires: pkgconfig(ttrace)
 %if %{with wayland}
 BuildRequires: pkgconfig(libtbm)
