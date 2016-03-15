@@ -209,7 +209,7 @@ _e_devicemgr_add_device(const char *name, const char *identifier, const char *se
              if (wl_resource_get_client(dev_mgr_res) != wc) continue;
              tizen_input_device_manager_send_device_add(dev_mgr_res, serial, dev->identifier, res, seat_res);
           }
-        tizen_input_device_send_device_info(res, dev->capability, TIZEN_INPUT_DEVICE_SUBCLAS_NONE, &axes);
+        tizen_input_device_send_device_info(res, dev->name, dev->capability, TIZEN_INPUT_DEVICE_SUBCLAS_NONE, &axes);
      }
 
    e_comp_wl->input_device_manager.device_list = eina_list_append(e_comp_wl->input_device_manager.device_list, dev);
@@ -504,7 +504,7 @@ _e_devicemgr_device_mgr_cb_bind(struct wl_client *client, void *data, uint32_t v
                                       _e_devicemgr_device_cb_device_unbind);
 
         tizen_input_device_manager_send_device_add(res, serial, dev->identifier, device_res, seat_res);
-        tizen_input_device_send_device_info(device_res, dev->capability, TIZEN_INPUT_DEVICE_SUBCLAS_NONE, &axes);
+        tizen_input_device_send_device_info(device_res, dev->name, dev->capability, TIZEN_INPUT_DEVICE_SUBCLAS_NONE, &axes);
      }
 }
 
