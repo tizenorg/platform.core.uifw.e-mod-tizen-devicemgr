@@ -641,6 +641,8 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
 
    tdm_layer_set_buffer(video->layer, vfb->mbuf->tbm_surface);
    tdm_output_commit(video->output, 0, NULL, NULL);
+
+   e_comp_object_mask_set(video->ec->frame, EINA_TRUE);
 }
 
 static void
