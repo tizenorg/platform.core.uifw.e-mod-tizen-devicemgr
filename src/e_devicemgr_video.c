@@ -743,7 +743,7 @@ _e_video_create(struct wl_resource *video_object, struct wl_resource *surface)
    video->output_align = -1;
    video->pp_align = -1;
    video->video_align = -1;
-   VIN("create. wl_surface@%d", wl_resource_get_id(video->surface));
+   VIN("create. ec(%p) wl_surface@%d", ec, wl_resource_get_id(video->surface));
 
    ec->comp_data->video_client = 1;
 
