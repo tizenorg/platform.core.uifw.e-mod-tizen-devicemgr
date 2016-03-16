@@ -62,6 +62,8 @@ struct _E_Video
    Eina_Bool   wait_vblank;
    Eina_List  *waiting_list;
    E_Video_Fb *current_fb;
+
+   Eina_Bool  punched;
 };
 
 static Eina_List *video_list;
@@ -642,7 +644,37 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
    tdm_layer_set_buffer(video->layer, vfb->mbuf->tbm_surface);
    tdm_output_commit(video->output, 0, NULL, NULL);
 
-   e_comp_object_mask_set(video->ec->frame, EINA_TRUE);
+   if (!video->punched)
+     {
+       E_Client *topmost = find_topmost_parent_get(video->ec);
+       Eina_Bool do_punch = EINA_TRUE;
+
+       /* FIXME: the mask obj can be drawn at the wrong position in the beginnig
+        * time. It happens caused by window manager policy.
+        */
+       if ((topmost->fullscreen || topmost->maximized) &&
+           (video->geo.output_r.x == 0 || video->geo.output_r.y == 0))
+         {
+            int bw, bh;
+
+            e_pixmap_size_get(topmost->pixmap, &bw, &bh);
+
+            if (bw > 100 && bh > 100 &&
+                video->geo.output_r.w < 100 && video->geo.output_r.h < 100)
+              {
+                 VIN("don't punch. (%dx%d, %dx%d)",
+                     bw, bh, video->geo.output_r.w, video->geo.output_r.h);
+                 do_punch = EINA_FALSE;
+              }
+          }
+
+       if (do_punch)
+         {
+            e_comp_object_mask_set(video->ec->frame, EINA_TRUE);
+            video->punched = EINA_TRUE;
+            VIN("punched");
+         }
+     }
 }
 
 static void
