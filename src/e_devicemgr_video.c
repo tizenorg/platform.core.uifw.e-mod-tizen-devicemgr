@@ -1114,9 +1114,19 @@ _e_video_render(E_Video *video)
 
 render_fail:
    if (input_buffer)
-     e_devmgr_buffer_unref(input_buffer);
+     {
+        tdm_buffer_remove_release_handler(input_buffer->tbm_surface,
+                                          _e_video_input_buffer_cb_release, input_buffer);
 
-   /* don't unref pp_buffer here because we will unref it when video destroyed */
+        e_devmgr_buffer_unref(input_buffer);
+     }
+
+   if (pp_buffer)
+     {
+        tdm_buffer_remove_release_handler(pp_buffer->tbm_surface,
+                                          _e_video_pp_buffer_cb_release, input_buffer);
+        /* don't unref pp_buffer here because we will unref it when video destroyed */
+     }
 }
 
 static Eina_Bool
