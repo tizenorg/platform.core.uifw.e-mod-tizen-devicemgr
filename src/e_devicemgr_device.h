@@ -7,6 +7,9 @@
 #include "e_comp_wl.h"
 #include <wayland-server.h>
 
+#include <linux/uinput.h>
+#include <xkbcommon/xkbcommon.h>
+
 #ifdef TRACE_INPUT_BEGIN
 #undef TRACE_INPUT_BEGIN
 #endif
@@ -49,6 +52,14 @@ struct _e_devicemgr_input_devmgr_data
 #endif
 
    unsigned int pressed_button;
+
+   struct
+   {
+      struct uinput_user_dev uinp;
+      int uinp_fd;
+      char *uinp_identifier;
+      unsigned int ref;
+   }inputgen;
 };
 
 int e_devicemgr_device_init(void);
