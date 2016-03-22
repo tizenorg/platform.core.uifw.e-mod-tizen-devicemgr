@@ -311,20 +311,12 @@ _e_devicemgr_event_filter(void *data, void *loop_data EINA_UNUSED, int type, voi
 
    if (ECORE_EVENT_KEY_DOWN == type || ECORE_EVENT_KEY_UP == type)
      {
-        if ((!input_devmgr_data->block_devtype) || (!input_devmgr_data->block_client))
-          {
-             return ECORE_CALLBACK_PASS_ON;
-          }
         return _e_devicemgr_block_check_keyboard(type, event);
      }
    else if(ECORE_EVENT_MOUSE_BUTTON_DOWN == type ||
            ECORE_EVENT_MOUSE_BUTTON_UP == type ||
            ECORE_EVENT_MOUSE_MOVE == type)
      {
-        if ((!input_devmgr_data->block_devtype) || (!input_devmgr_data->block_client))
-          {
-             return ECORE_CALLBACK_PASS_ON;
-          }
         return _e_devicemgr_block_check_pointer(type, event);
      }
 
