@@ -827,6 +827,8 @@ _e_input_devmgr_cb_generate_touch(struct wl_client *client, struct wl_resource *
      {
         case TIZEN_INPUT_DEVICE_MANAGER_POINTER_EVENT_TYPE_BEGIN:
            ret = _e_input_devmgr_generate_touch_update_event(x, y, finger);
+           ret = _e_input_devmgr_generate_touch_event(type, x, y, finger);
+           break;
         case TIZEN_INPUT_DEVICE_MANAGER_POINTER_EVENT_TYPE_END:
            ret = _e_input_devmgr_generate_touch_event(type, x, y, finger);
            break;
