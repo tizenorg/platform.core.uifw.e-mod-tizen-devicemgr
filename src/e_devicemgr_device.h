@@ -60,6 +60,12 @@ struct _e_devicemgr_input_devmgr_data
       char *uinp_identifier;
       unsigned int ref;
    }inputgen;
+
+   struct
+   {
+      char *identifier;
+      int wheel_click_angle;
+   }detent;
 };
 
 int e_devicemgr_device_init(void);
