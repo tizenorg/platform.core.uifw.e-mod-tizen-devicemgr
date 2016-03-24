@@ -1,5 +1,6 @@
 #include "e_devicemgr_device.h"
 #include <tizen-extension-server-protocol.h>
+#include <Ecore_Drm.h>
 
 static Eina_List *handlers = NULL;
 
@@ -115,6 +116,12 @@ _e_devicemgr_del_device(const char *name, const char *identifier, const char *se
         return;
      }
 
+   if ((input_devmgr_data->detent.identifier) &&
+       (!strncmp(dev->name, "tizen_detent", sizeof("tizen_detent"))))
+     {
+        eina_stringshare_del(input_devmgr_data->detent.identifier);
+     }
+
    if (dev->name) eina_stringshare_del(dev->name);
    if (dev->identifier) eina_stringshare_del(dev->identifier);
 
@@ -159,10 +166,15 @@ _e_devicemgr_add_device(const char *name, const char *identifier, const char *se
 {
    E_Comp_Wl_Input_Device *dev;
    struct wl_client *wc;
-   Eina_List *l, *ll;
+   Eina_List *l, *ll, *l1, *l2, *l3;
    struct wl_resource *res, *seat_res, *dev_mgr_res;
    uint32_t serial;
    struct wl_array axes;
+   Ecore_Drm_Device *drm_device_data = NULL;
+   Ecore_Drm_Seat *seat = NULL;
+   Ecore_Drm_Evdev *edev = NULL;
+   int wheel_click_angle;
+   Eina_List *dev_list;
 
    if (!e_comp) return;
    if (!e_comp_wl) return;
@@ -219,6 +231,28 @@ _e_devicemgr_add_device(const char *name, const char *identifier, const char *se
      {
         input_devmgr_data->inputgen.uinp_identifier = (char *)eina_stringshare_add(identifier);
      }
+
+   if ((!input_devmgr_data->detent.identifier) &&
+       (!strncmp(dev->name, "tizen_detent", sizeof("tizen_detent"))))
+     {
+        input_devmgr_data->detent.identifier = (char *)eina_stringshare_add(identifier);
+        dev_list = (Eina_List *)ecore_drm_devices_get();
+        EINA_LIST_FOREACH(dev_list, l1, drm_device_data)
+          {
+             EINA_LIST_FOREACH(drm_device_data->seats, l2, seat)
+               {
+                  EINA_LIST_FOREACH(ecore_drm_seat_evdev_list_get(seat), l3, edev)
+                    {
+                       if (!strncmp(ecore_drm_evdev_name_get(edev), "tizen_detent", sizeof("tizen_detent")))
+                         {
+                            wheel_click_angle = ecore_drm_evdev_wheel_click_angle_get(edev);
+                            input_devmgr_data->detent.wheel_click_angle = wheel_click_angle;
+                         }
+                    }
+               }
+          }
+     }
+
    TRACE_INPUT_END();
 }
 
@@ -304,6 +338,64 @@ _e_devicemgr_block_check_keyboard(int type, void *event)
    return ECORE_CALLBACK_PASS_ON;
 }
 
+static void
+_e_devicemgr_send_detent_event(int detent)
+{
+   E_Comp_Wl_Input_Device *input_dev;
+   struct wl_resource *dev_res;
+   struct wl_client *wc;
+   Eina_List *l, *ll;
+   wl_fixed_t f_value;
+   E_Client *ec;
+
+   ec = e_client_focused_get();
+
+   if (!ec) return;
+   if (e_object_is_del(E_OBJECT(ec))) return;
+   if (ec->ignored) return;
+
+   f_value = wl_fixed_from_double(detent*1.0);
+   wc = wl_resource_get_client(ec->comp_data->surface);
+
+   EINA_LIST_FOREACH(e_comp_wl->input_device_manager.device_list, l, input_dev)
+     {
+        if (!strncmp(input_dev->name, "tizen_detent", sizeof("tizen_detent")))
+          {
+             EINA_LIST_FOREACH(input_dev->resources, ll, dev_res)
+               {
+                  if (wl_resource_get_client(dev_res) != wc) continue;
+                  tizen_input_device_send_axis(dev_res, TIZEN_INPUT_DEVICE_AXIS_TYPE_DETENT, f_value);
+               }
+          }
+     }
+}
+
+static Eina_Bool
+_e_devicemgr_detent_check(int type EINA_UNUSED, void *event)
+{
+   Ecore_Event_Mouse_Wheel *ev;
+   int detent;
+
+   ev = event;
+   EINA_SAFETY_ON_NULL_RETURN_VAL(ev, ECORE_CALLBACK_PASS_ON);
+
+   if ((input_devmgr_data->detent.identifier) &&
+       (!strncmp(ev->dev_name, input_devmgr_data->detent.identifier,
+                 eina_stringshare_strlen(input_devmgr_data->detent.identifier))))
+     {
+        detent = (int)(ev->z / (input_devmgr_data->detent.wheel_click_angle ? input_devmgr_data->detent.wheel_click_angle : 1));
+        if (detent == 2 || detent == -2)
+          {
+             detent = (detent / 2)*(-1);
+             _e_devicemgr_send_detent_event(detent);
+          }
+
+        return ECORE_CALLBACK_DONE;
+     }
+
+   return ECORE_CALLBACK_PASS_ON;
+}
+
 static Eina_Bool
 _e_devicemgr_event_filter(void *data, void *loop_data EINA_UNUSED, int type, void *event)
 {
@@ -313,11 +405,15 @@ _e_devicemgr_event_filter(void *data, void *loop_data EINA_UNUSED, int type, voi
      {
         return _e_devicemgr_block_check_keyboard(type, event);
      }
-   else if(ECORE_EVENT_MOUSE_BUTTON_DOWN == type ||
+   else if (ECORE_EVENT_MOUSE_BUTTON_DOWN == type ||
            ECORE_EVENT_MOUSE_BUTTON_UP == type ||
            ECORE_EVENT_MOUSE_MOVE == type)
      {
         return _e_devicemgr_block_check_pointer(type, event);
+     }
+   else if (ECORE_EVENT_MOUSE_WHEEL == type)
+     {
+        return _e_devicemgr_detent_check(type, event);
      }
 
    return ECORE_CALLBACK_PASS_ON;
@@ -978,4 +1074,6 @@ e_devicemgr_device_fini(void)
    if (input_devmgr_data->p_cynara) cynara_finish(input_devmgr_data->p_cynara);
    input_devmgr_data->cynara_initialized = EINA_FALSE;
 #endif
+
+   eina_stringshare_del(input_devmgr_data->detent.identifier);
 }
