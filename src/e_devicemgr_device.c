@@ -256,19 +256,33 @@ _e_devicemgr_add_device(const char *name, const char *identifier, const char *se
    TRACE_INPUT_END();
 }
 
+static unsigned int
+_e_devicemgr_ecore_device_class_to_cap(Ecore_Device_Class clas)
+{
+   switch(clas)
+     {
+      case ECORE_DEVICE_CLASS_MOUSE:
+         return ECORE_DEVICE_POINTER;
+      case ECORE_DEVICE_CLASS_KEYBOARD:
+         return ECORE_DEVICE_KEYBOARD;
+      case ECORE_DEVICE_CLASS_TOUCH:
+         return ECORE_DEVICE_TOUCH;
+      default:
+         return 0;
+     }
+   return 0;
+}
+
 static Eina_Bool
 _cb_device_add(void *data EINA_UNUSED, int type EINA_UNUSED, void *event)
 {
    Ecore_Event_Device_Info *e;
+   unsigned int cap;
 
    if (!(e = event)) return ECORE_CALLBACK_PASS_ON;
 
-   if (e->caps & EVDEV_SEAT_POINTER)
-     _e_devicemgr_add_device(e->name, e->identifier, e->seatname, EVDEV_SEAT_POINTER);
-   if (e->caps & EVDEV_SEAT_KEYBOARD)
-     _e_devicemgr_add_device(e->name, e->identifier, e->seatname, EVDEV_SEAT_KEYBOARD);
-   if (e->caps & EVDEV_SEAT_TOUCH)
-     _e_devicemgr_add_device(e->name, e->identifier, e->seatname, EVDEV_SEAT_TOUCH);
+   cap = _e_devicemgr_ecore_device_class_to_cap(e->clas);
+   _e_devicemgr_add_device(e->name, e->identifier, e->seatname, cap);
 
    return ECORE_CALLBACK_PASS_ON;
 }
@@ -277,15 +291,12 @@ static Eina_Bool
 _cb_device_del(void *data EINA_UNUSED, int type EINA_UNUSED, void *event)
 {
    Ecore_Event_Device_Info *e;
+   unsigned int cap;
 
    if(!(e = event)) return ECORE_CALLBACK_PASS_ON;
 
-   if (e->caps & EVDEV_SEAT_POINTER)
-     _e_devicemgr_del_device(e->name, e->identifier, e->seatname, EVDEV_SEAT_POINTER);
-   if (e->caps & EVDEV_SEAT_KEYBOARD)
-     _e_devicemgr_del_device(e->name, e->identifier, e->seatname, EVDEV_SEAT_KEYBOARD);
-   if (e->caps & EVDEV_SEAT_TOUCH)
-     _e_devicemgr_del_device(e->name, e->identifier, e->seatname, EVDEV_SEAT_TOUCH);
+   cap = _e_devicemgr_ecore_device_class_to_cap(e->clas);
+   _e_devicemgr_del_device(e->name, e->identifier, e->seatname, cap);
 
    return ECORE_CALLBACK_PASS_ON;
 }
@@ -726,7 +737,6 @@ _e_input_devmgr_keyevent_free(void *data EINA_UNUSED, void *ev)
    eina_stringshare_del(e->keyname);
    eina_stringshare_del(e->key);
    eina_stringshare_del(e->compose);
-   eina_stringshare_del(e->dev_name);
 
    free(e);
 }
@@ -759,9 +769,9 @@ _e_input_devmgr_generate_key_event(const char *key, Eina_Bool pressed)
    e->data = NULL;
 
    e->modifiers = 0;
-   e->dev_name = eina_stringshare_add(input_devmgr_data->inputgen.uinp_identifier);
+   e->dev = ecore_drm_evdev_get_ecore_device(input_devmgr_data->inputgen.uinp_identifier, ECORE_DEVICE_CLASS_KEYBOARD);
 
-   DMDBG("Generate key event: key: %s, keycode: %d, iden: %s\n", e->key, e->keycode, e->dev_name);
+   DMDBG("Generate key event: key: %s, keycode: %d, iden: %s\n", e->key, e->keycode, input_devmgr_data->inputgen.uinp_identifier);
 
    if (pressed)
      ecore_event_add(ECORE_EVENT_KEY_DOWN, e, _e_input_devmgr_keyevent_free, NULL);
@@ -808,8 +818,6 @@ _e_input_devmgr_touchevent_free(void *data EINA_UNUSED, void *ev)
 {
    Ecore_Event_Mouse_Button *e = ev;
 
-   eina_stringshare_del(e->dev_name);
-
    free(e);
 }
 
@@ -843,8 +851,7 @@ _e_input_devmgr_generate_touch_event(uint32_t type, uint32_t x, uint32_t y, uint
    e->multi.y = e->y;
    e->multi.root.x = e->x;
    e->multi.root.y = e->y;
-   e->dev_name = eina_stringshare_add(input_devmgr_data->inputgen.uinp_identifier);
-
+   e->dev = ecore_drm_evdev_get_ecore_device(input_devmgr_data->inputgen.uinp_identifier, ECORE_DEVICE_CLASS_TOUCH);
    e->buttons = 1;
 
    DMDBG("Generate touch event: device: %d (%d, %d)\n", e->multi.device, e->x, e->y);
@@ -861,8 +868,6 @@ static void
 _e_input_devmgr_touchmoveevent_free(void *data EINA_UNUSED, void *ev)
 {
    Ecore_Event_Mouse_Move *e = ev;
-
-   eina_stringshare_del(e->dev_name);
 
    free(e);
 }
@@ -897,7 +902,7 @@ _e_input_devmgr_generate_touch_update_event(uint32_t x, uint32_t y, uint32_t fin
    e->multi.y = e->y;
    e->multi.root.x = e->x;
    e->multi.root.y = e->y;
-   e->dev_name = eina_stringshare_add(input_devmgr_data->inputgen.uinp_identifier);
+   e->dev = ecore_drm_evdev_get_ecore_device(input_devmgr_data->inputgen.uinp_identifier, ECORE_DEVICE_CLASS_TOUCH);
 
    DMDBG("Generate touch move event: device: %d (%d, %d)\n", e->multi.device, e->x, e->y);
 
