@@ -23,7 +23,7 @@ _cb_input_dev_add(void *data EINA_UNUSED, int type EINA_UNUSED, void *event)
 
    if (remapped) return ECORE_CALLBACK_PASS_ON;
    if (!(e = event)) return ECORE_CALLBACK_PASS_ON;
-   if (!(e->caps & EVDEV_SEAT_KEYBOARD)) return ECORE_CALLBACK_PASS_ON;
+   if (!(e->clas == ECORE_DEVICE_CLASS_KEYBOARD)) return ECORE_CALLBACK_PASS_ON;
    if (!(e->name) || strcmp(e->name, "au0828 IR (Hauppauge HVR950Q)"))
      return ECORE_CALLBACK_PASS_ON;
 
