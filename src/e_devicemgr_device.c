@@ -8,7 +8,7 @@ e_devicemgr_input_devmgr_data *input_devmgr_data;
 
 #ifdef ENABLE_CYNARA
 static void _e_devicemgr_util_cynara_log(const char *func_name, int err);
-static Eina_Bool _e_devicemgr_util_do_privilege_check(struct wl_client *client, int socket_fd);
+static Eina_Bool _e_devicemgr_util_do_privilege_check(struct wl_client *client, int socket_fd, const char *rule);
 
 #define E_DEVMGR_CYNARA_ERROR_CHECK_GOTO(func_name, ret, label) \
   do \
@@ -38,7 +38,7 @@ _e_devicemgr_util_cynara_log(const char *func_name, int err)
 }
 
 static Eina_Bool
-_e_devicemgr_util_do_privilege_check(struct wl_client *client, int socket_fd)
+_e_devicemgr_util_do_privilege_check(struct wl_client *client, int socket_fd, const char *rule)
 {
    int ret, pid;
    char *clientSmack=NULL, *uid=NULL, *client_session=NULL;
@@ -58,7 +58,7 @@ _e_devicemgr_util_do_privilege_check(struct wl_client *client, int socket_fd)
 
    client_session = cynara_session_from_pid(pid);
 
-   ret = cynara_check(input_devmgr_data->p_cynara, clientSmack, client_session, uid, "http://tizen.org/privilege/internal/inputdevice.block");
+   ret = cynara_check(input_devmgr_data->p_cynara, clientSmack, client_session, uid, rule);
 
    if (CYNARA_API_ACCESS_ALLOWED == ret)
         res = EINA_TRUE;
@@ -490,7 +490,7 @@ _e_input_devmgr_cb_block_events(struct wl_client *client, struct wl_resource *re
                         TIZEN_INPUT_DEVICE_MANAGER_CLAS_TOUCHSCREEN;
 
 #ifdef ENABLE_CYNARA
-   if (EINA_FALSE == _e_devicemgr_util_do_privilege_check(client, wl_client_get_fd(client)))
+   if (EINA_FALSE == _e_devicemgr_util_do_privilege_check(client, wl_client_get_fd(client), "http://tizen.org/privilege/internal/inputdevice.block"))
      {
         DMERR("_e_input_devmgr_cb_block_events:priv check failed");
         return;
@@ -518,7 +518,7 @@ _e_input_devmgr_cb_unblock_events(struct wl_client *client, struct wl_resource *
                              uint32_t serial)
 {
 #ifdef ENABLE_CYNARA
-   if (EINA_FALSE == _e_devicemgr_util_do_privilege_check(client, wl_client_get_fd(client)))
+   if (EINA_FALSE == _e_devicemgr_util_do_privilege_check(client, wl_client_get_fd(client), "http://tizen.org/privilege/internal/inputdevice.block"))
      {
         DMERR("_e_input_devmgr_cb_unblock_events:priv check failed");
         return;
@@ -637,20 +637,31 @@ _e_input_devmgr_cb_init_generator(struct wl_client *client, struct wl_resource *
 {
    int uinp_fd = -1;
    struct uinput_user_dev *uinp = &input_devmgr_data->inputgen.uinp;
-   int res;
+   int ret = -1;
+
+#ifdef ENABLE_CYNARA
+   if (EINA_FALSE == _e_devicemgr_util_do_privilege_check(client, wl_client_get_fd(client), "http://tizen.org/privilege/inputgenerator"))
+     {
+        DMERR("_e_input_devmgr_cb_init_generator:priv check failed");
+        ret = TIZEN_INPUT_DEVICE_MANAGER_ERROR_NO_PERMISSION;
+        goto finish;
+     }
+#endif
 
    if (input_devmgr_data->inputgen.uinp_fd > 0)
      {
         input_devmgr_data->inputgen.ref++;
         _e_input_devmgr_inputgen_client_add(client);
-        return;
+        ret = TIZEN_INPUT_DEVICE_MANAGER_ERROR_NONE;
+        goto finish;
      }
 
    uinp_fd = open("/dev/uinput", O_WRONLY | O_NDELAY);
    if ( uinp_fd < 0)
      {
         DMWRN("Failed to open /dev/uinput: (%d)\n", uinp_fd);
-        return;
+        ret = TIZEN_INPUT_DEVICE_MANAGER_ERROR_NO_SYSTEM_RESOURCES;
+        goto finish;
      }
 
    memset(uinp, 0, sizeof(struct uinput_user_dev));
@@ -690,32 +701,51 @@ _e_input_devmgr_cb_init_generator(struct wl_client *client, struct wl_resource *
    ioctl(uinp_fd, UI_SET_ABSBIT, ABS_MT_POSITION_Y);
    ioctl(uinp_fd, UI_SET_ABSBIT, ABS_MT_TRACKING_ID);
 
-   res = write(uinp_fd, uinp, sizeof(struct uinput_user_dev));
-   if (res < 0)
+   ret = write(uinp_fd, uinp, sizeof(struct uinput_user_dev));
+   if (ret < 0)
      {
         DMWRN("Failed to write UINPUT device\n");
         close(uinp_fd);
-        return;
+        ret = TIZEN_INPUT_DEVICE_MANAGER_ERROR_NO_SYSTEM_RESOURCES;
+        goto finish;
      }
    if (ioctl(uinp_fd, UI_DEV_CREATE))
      {
         DMWRN("Unable to create UINPUT device\n");
         close(uinp_fd);
-        return;
+        ret = TIZEN_INPUT_DEVICE_MANAGER_ERROR_NO_SYSTEM_RESOURCES;
+        goto finish;
      }
    input_devmgr_data->inputgen.uinp_fd = uinp_fd;
    input_devmgr_data->inputgen.ref++;
    _e_input_devmgr_inputgen_client_add(client);
+
+finish:
+   tizen_input_device_manager_send_error(resource, ret);
 }
 
 static void
 _e_input_devmgr_cb_deinit_generator(struct wl_client *client, struct wl_resource *resource)
 {
+   int ret = -1;
+#ifdef ENABLE_CYNARA
+   if (EINA_FALSE == _e_devicemgr_util_do_privilege_check(client, wl_client_get_fd(client), "http://tizen.org/privilege/inputgenerator"))
+     {
+        DMERR("_e_input_devmgr_cb_deinit_generator:priv check failed");
+        ret = TIZEN_INPUT_DEVICE_MANAGER_ERROR_NO_PERMISSION;
+        goto finish;
+     }
+#endif
    input_devmgr_data->inputgen.ref--;
    if (input_devmgr_data->inputgen.ref == 0)
      {
         _e_input_devmgr_inputgen_generator_remove();
      }
+
+   ret = TIZEN_INPUT_DEVICE_MANAGER_ERROR_NONE;
+
+finish:
+   tizen_input_device_manager_send_error(resource, ret);
 }
 
 static void
@@ -777,6 +807,15 @@ _e_input_devmgr_cb_generate_key(struct wl_client *client, struct wl_resource *re
 {
    int ret = -1;
 
+#ifdef ENABLE_CYNARA
+   if (EINA_FALSE == _e_devicemgr_util_do_privilege_check(client, wl_client_get_fd(client), "http://tizen.org/privilege/inputgenerator"))
+     {
+        DMERR("_e_input_devmgr_cb_generate_key:priv check failed");
+        ret = TIZEN_INPUT_DEVICE_MANAGER_ERROR_NO_PERMISSION;
+        goto finish;
+     }
+#endif
+
    if (input_devmgr_data->inputgen.uinp_fd < 0)
      {
         DMWRN("generate is not init\n");
@@ -800,7 +839,19 @@ static void
 _e_input_devmgr_cb_generate_pointer(struct wl_client *client, struct wl_resource *resource,
                                     uint32_t type, uint32_t x, uint32_t y, uint32_t button)
 {
+   int ret = TIZEN_INPUT_DEVICE_MANAGER_ERROR_NONE;
+#ifdef ENABLE_CYNARA
+   if (EINA_FALSE == _e_devicemgr_util_do_privilege_check(client, wl_client_get_fd(client), "http://tizen.org/privilege/inputgenerator"))
+     {
+        DMERR("_e_input_devmgr_cb_generate_pointer:priv check failed");
+        ret = TIZEN_INPUT_DEVICE_MANAGER_ERROR_NO_PERMISSION;
+        goto finish;
+     }
+#endif
+
    DMDBG("generate pointer is requested from %p client. type: %d, coord(%d, %d), button: %d\n", client, type, x, y, button);
+finish:
+   tizen_input_device_manager_send_error(resource, ret);
 }
 
 static void
@@ -911,6 +962,15 @@ _e_input_devmgr_cb_generate_touch(struct wl_client *client, struct wl_resource *
                                    uint32_t type, uint32_t x, uint32_t y, uint32_t finger)
 {
    int ret = TIZEN_INPUT_DEVICE_MANAGER_ERROR_NONE;
+
+#ifdef ENABLE_CYNARA
+   if (EINA_FALSE == _e_devicemgr_util_do_privilege_check(client, wl_client_get_fd(client), "http://tizen.org/privilege/inputgenerator"))
+     {
+        DMERR("_e_input_devmgr_cb_generate_touch:priv check failed");
+        ret = TIZEN_INPUT_DEVICE_MANAGER_ERROR_NO_PERMISSION;
+        goto finish;
+     }
+#endif
 
    if (input_devmgr_data->inputgen.uinp_fd < 0)
      {
