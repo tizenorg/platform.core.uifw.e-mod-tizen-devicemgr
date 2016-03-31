@@ -469,7 +469,7 @@ _e_devmgr_buffer_alloc(int width, int height, tbm_format tbmfmt, Eina_Bool scano
      mbuf->stamp++;
    mbuf->func = strdup(func);
 
-   size = _e_devmgr_buf_image_attr(tbmfmt, ROUNDUP(width, 16), height,
+   size = _e_devmgr_buf_image_attr(tbmfmt, width, height,
                                    mbuf->pitches, mbuf->offsets, length, &num_plane);
    EINA_SAFETY_ON_FALSE_GOTO(size > 0, alloc_fail);
 
