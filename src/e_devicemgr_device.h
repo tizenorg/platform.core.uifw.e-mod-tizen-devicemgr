@@ -45,7 +45,6 @@ struct _e_devicemgr_input_devmgr_data
    unsigned int block_devtype;
    struct wl_client *block_client;
    Ecore_Timer *duration_timer;
-   Ecore_Event_Filter *event_filter;
 #ifdef ENABLE_CYNARA
    cynara *p_cynara;
    Eina_Bool cynara_initialized;
@@ -70,5 +69,9 @@ struct _e_devicemgr_input_devmgr_data
 
 int e_devicemgr_device_init(void);
 void e_devicemgr_device_fini(void);
+
+Eina_Bool e_devicemgr_block_check_keyboard(int type, void *event);
+Eina_Bool e_devicemgr_block_check_pointer(int type, void *event);
+Eina_Bool e_devicemgr_detent_check(int type EINA_UNUSED, void *event);
 
 #endif

@@ -290,8 +290,8 @@ _cb_device_del(void *data EINA_UNUSED, int type EINA_UNUSED, void *event)
    return ECORE_CALLBACK_PASS_ON;
 }
 
-static Eina_Bool
-_e_devicemgr_block_check_pointer(int type, void *event)
+Eina_Bool
+e_devicemgr_block_check_pointer(int type, void *event)
 {
    Ecore_Event_Mouse_Button *ev;
 
@@ -322,8 +322,8 @@ _e_devicemgr_block_check_pointer(int type, void *event)
    return ECORE_CALLBACK_PASS_ON;
 }
 
-static Eina_Bool
-_e_devicemgr_block_check_keyboard(int type, void *event)
+Eina_Bool
+e_devicemgr_block_check_keyboard(int type, void *event)
 {
    Ecore_Event_Key *ev;
 
@@ -370,8 +370,8 @@ _e_devicemgr_send_detent_event(int detent)
      }
 }
 
-static Eina_Bool
-_e_devicemgr_detent_check(int type EINA_UNUSED, void *event)
+Eina_Bool
+e_devicemgr_detent_check(int type EINA_UNUSED, void *event)
 {
    Ecore_Event_Mouse_Wheel *ev;
    int detent;
@@ -391,29 +391,6 @@ _e_devicemgr_detent_check(int type EINA_UNUSED, void *event)
           }
 
         return ECORE_CALLBACK_DONE;
-     }
-
-   return ECORE_CALLBACK_PASS_ON;
-}
-
-static Eina_Bool
-_e_devicemgr_event_filter(void *data, void *loop_data EINA_UNUSED, int type, void *event)
-{
-   (void) data;
-
-   if (ECORE_EVENT_KEY_DOWN == type || ECORE_EVENT_KEY_UP == type)
-     {
-        return _e_devicemgr_block_check_keyboard(type, event);
-     }
-   else if (ECORE_EVENT_MOUSE_BUTTON_DOWN == type ||
-           ECORE_EVENT_MOUSE_BUTTON_UP == type ||
-           ECORE_EVENT_MOUSE_MOVE == type)
-     {
-        return _e_devicemgr_block_check_pointer(type, event);
-     }
-   else if (ECORE_EVENT_MOUSE_WHEEL == type)
-     {
-        return _e_devicemgr_detent_check(type, event);
      }
 
    return ECORE_CALLBACK_PASS_ON;
@@ -1051,9 +1028,6 @@ e_devicemgr_device_init(void)
    input_devmgr_data->cynara_initialized = EINA_TRUE;
 #endif
 
-   /* add event filter for blocking events */
-   input_devmgr_data->event_filter = ecore_event_filter_add(NULL, _e_devicemgr_event_filter, NULL, NULL);
-
    input_devmgr_data->inputgen.uinp_fd = -1;
 
    TRACE_INPUT_END();
@@ -1064,10 +1038,6 @@ void
 e_devicemgr_device_fini(void)
 {
    E_FREE_LIST(handlers, ecore_event_handler_del);
-
-    /* remove existing event filter */
-   ecore_event_filter_del(input_devmgr_data->event_filter);
-   input_devmgr_data->event_filter = NULL;
 
    /* deinitialization of cynara if it has been initialized */
 #ifdef ENABLE_CYNARA
