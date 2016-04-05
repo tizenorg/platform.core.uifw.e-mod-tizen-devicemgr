@@ -91,7 +91,6 @@ _e_devicemgr_input_keyevent_free(void *data EINA_UNUSED, void *ev)
    eina_stringshare_del(e->keyname);
    eina_stringshare_del(e->key);
    eina_stringshare_del(e->compose);
-   eina_stringshare_del(e->dev_name);
 
    E_FREE(e);
 }
