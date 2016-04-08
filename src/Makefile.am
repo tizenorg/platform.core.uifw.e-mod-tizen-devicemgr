@@ -9,7 +9,8 @@ module_la_SOURCES      = \
 	e_mod_main.c \
 	e_devicemgr_output.c \
 	e_devicemgr_input.c \
-	e_devicemgr_scale.c 
+	e_devicemgr_scale.c \
+	e_devicemgr_conf.c
 
 if HAVE_WAYLAND_ONLY
 module_la_SOURCES      += \

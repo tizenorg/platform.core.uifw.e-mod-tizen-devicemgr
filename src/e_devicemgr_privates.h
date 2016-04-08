@@ -42,4 +42,30 @@ extern int _log_dom;
 #endif
 #define MAX(a,b) (((a) < (b)) ? (b) : (a))
 
+/* Structure for config data */
+typedef struct _E_Devicemgr_Conf_Edd E_Devicemgr_Conf_Edd;
+typedef struct _E_Devicemgr_Config_Data E_Devicemgr_Config_Data;
+
+extern E_Devicemgr_Config_Data *dconfig;
+
+struct _E_Devicemgr_Conf_Edd
+{
+   struct
+   {
+      Eina_Bool button_remap_enable;
+      int back_keycode;
+   } input;
+};
+
+struct _E_Devicemgr_Config_Data
+{
+   E_Module *module;
+   E_Config_DD *conf_edd;
+   E_Devicemgr_Conf_Edd *conf;
+};
+
+/* Functions for config data */
+void e_devicemgr_conf_init(E_Devicemgr_Config_Data *dconfig);
+void e_devicemgr_conf_fini(E_Devicemgr_Config_Data *dconfig);
+
 #endif//_E_DEVICEMGR_PRIVATE_H_

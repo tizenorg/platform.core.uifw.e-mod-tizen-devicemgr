@@ -9,6 +9,8 @@ static Eina_List *handlers = NULL;
 static Eina_Bool remapped = EINA_FALSE;
 static Ecore_Event_Filter *ev_filter = NULL;
 
+E_Devicemgr_Config_Data *dconfig;
+
 static Eina_Bool
 _cb_input_dev_add(void *data EINA_UNUSED, int type EINA_UNUSED, void *event)
 {
@@ -117,7 +119,7 @@ _e_devicemgr_input_pointer_mouse_remap(int type, void *event)
    ev_key->compose = (char *)eina_stringshare_add(ev_key->key);
    ev_key->timestamp = (int)(ecore_time_get()*1000);
    ev_key->same_screen = 1;
-   ev_key->keycode = E_DEVICEMGR_INPUT_BACK_KEYCODE;
+   ev_key->keycode = dconfig->conf->input.back_keycode;
 
    if (type == ECORE_EVENT_MOUSE_BUTTON_DOWN)
      ecore_event_add(ECORE_EVENT_KEY_DOWN, ev_key, _e_devicemgr_input_keyevent_free, NULL);
@@ -135,7 +137,7 @@ _e_devicemgr_input_pointer_process(int type, void *event)
    res = e_devicemgr_block_check_pointer(type, event);
    if (res == ECORE_CALLBACK_DONE) return res;
 
-   if (E_DEVICEMGR_INPUT_MOUSE_REMAP_ENABLED)
+   if (dconfig->conf->input.button_remap_enable)
      res = _e_devicemgr_input_pointer_mouse_remap(type, event);
 
    return res;
@@ -183,6 +185,8 @@ e_devicemgr_input_init(void)
 
    /* add event filter for blocking events */
    ev_filter = ecore_event_filter_add(NULL, _e_devicemgr_event_filter, NULL, NULL);
+
+   DMDBG("input.button_remap_enable: %d\n", dconfig->conf->input.button_remap_enable);
 
    return 1;
 }

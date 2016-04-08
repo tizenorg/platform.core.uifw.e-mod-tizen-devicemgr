@@ -26,6 +26,8 @@ EAPI E_Module_Api e_modapi =
    "DeviceMgr Module of Window Manager"
 };
 
+E_Devicemgr_Config_Data *dconfig;
+
 EAPI void *
 e_modapi_init(E_Module *m)
 {
@@ -39,6 +41,20 @@ e_modapi_init(E_Module *m)
    if (_log_dom < 0)
      {
         SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ eina_log_domain_register()..!\n", __FUNCTION__);
+        return NULL;
+     }
+
+   dconfig = E_NEW(E_Devicemgr_Config_Data, 1);
+   if (!dconfig)
+     {
+        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ allocate memory for config data\n", __FUNCTION__);
+        return NULL;
+     }
+   dconfig->module = m;
+   e_devicemgr_conf_init(dconfig);
+   if (!dconfig->conf)
+     {
+        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ get config data\n", __FUNCTION__);
         return NULL;
      }
 
@@ -100,12 +116,13 @@ e_modapi_init(E_Module *m)
      }
 #endif
 
-   return m;
+   return dconfig;
 }
 
 EAPI int
-e_modapi_shutdown(E_Module *m EINA_UNUSED)
+e_modapi_shutdown(E_Module *m)
 {
+   E_Devicemgr_Config_Data *dconf = m->data;
 #ifdef HAVE_WAYLAND_ONLY
    e_devicemgr_dpms_fini();
    e_devicemgr_screenshooter_fini();
@@ -117,6 +134,8 @@ e_modapi_shutdown(E_Module *m EINA_UNUSED)
    e_devicemgr_scale_fini();
    e_devicemgr_input_fini();
    e_devicemgr_output_fini();
+   e_devicemgr_conf_fini(dconf);
+   E_FREE(dconf);
 
    eina_log_domain_unregister(_log_dom);
    eina_shutdown();
@@ -125,8 +144,12 @@ e_modapi_shutdown(E_Module *m EINA_UNUSED)
 }
 
 EAPI int
-e_modapi_save(E_Module *m EINA_UNUSED)
+e_modapi_save(E_Module *m)
 {
    /* Do Something */
+   E_Devicemgr_Config_Data *dconf = m->data;
+   e_config_domain_save("module.devicemgr",
+                        dconf->conf_edd,
+                        dconf->conf);
    return 1;
 }
