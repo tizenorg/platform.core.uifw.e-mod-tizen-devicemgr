@@ -71,10 +71,11 @@ static Eina_List *video_list;
 static void _e_video_set(E_Video *video, E_Client *ec);
 static void _e_video_destroy(E_Video *video);
 static void _e_video_render(E_Video *video);
-static void _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb);
+static Eina_Bool _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb);
 static void _e_video_frame_buffer_destroy(E_Video_Fb *vfb);
 static void _e_video_wait_vblank(E_Video *video);
 static void _e_video_buffer_show(E_Video *video, E_Devmgr_Buf *mbuf, Eina_Rectangle *visible, unsigned int transform);
+static void _e_video_vblank_handler(void *data);
 
 static int
 gcd(int a, int b)
@@ -611,19 +612,21 @@ _e_video_frame_buffer_destroy(E_Video_Fb *vfb)
    free (vfb);
 }
 
-static void
+static Eina_Bool
 _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
 {
    tdm_info_layer info, old_info;
+   tdm_error ret;
 
    if (!vfb)
      {
         tdm_layer_unset_buffer(video->layer);
-        return;
+        return EINA_TRUE;
      }
 
    CLEAR(old_info);
-   tdm_layer_get_info(video->layer, &old_info);
+   ret = tdm_layer_get_info(video->layer, &old_info);
+   EINA_SAFETY_ON_FALSE_GOTO(ret == TDM_ERROR_NONE, show_fail);
 
    CLEAR(info);
    info.src_config.size.h = vfb->mbuf->width_from_pitch;
@@ -639,10 +642,16 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
    info.transform = vfb->transform;
 
    if (memcmp(&old_info, &info, sizeof(tdm_info_layer)))
-     tdm_layer_set_info(video->layer, &info);
+     {
+        ret = tdm_layer_set_info(video->layer, &info);
+        EINA_SAFETY_ON_FALSE_GOTO(ret == TDM_ERROR_NONE, show_fail);
+     }
 
-   tdm_layer_set_buffer(video->layer, vfb->mbuf->tbm_surface);
-   tdm_output_commit(video->output, 0, NULL, NULL);
+   ret = tdm_layer_set_buffer(video->layer, vfb->mbuf->tbm_surface);
+   EINA_SAFETY_ON_FALSE_GOTO(ret == TDM_ERROR_NONE, show_fail);
+
+   ret = tdm_output_commit(video->output, 0, NULL, NULL);
+   EINA_SAFETY_ON_FALSE_GOTO(ret == TDM_ERROR_NONE, show_fail);
 
    if (!video->punched)
      {
@@ -675,6 +684,11 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
             VIN("punched");
          }
      }
+
+   return EINA_TRUE;
+show_fail:
+   tdm_layer_unset_buffer(video->layer);
+   return EINA_FALSE;
 }
 
 static void
@@ -694,8 +708,18 @@ _e_video_buffer_show(E_Video *video, E_Devmgr_Buf *mbuf, Eina_Rectangle *visible
    if (eina_list_nth(video->waiting_list, 1))
      return;
 
-   _e_video_frame_buffer_show(video, vfb);
+   if (e_devicemgr_dpms_get(video->drm_output))
+     goto no_wait_vblank;
+
+   if (!_e_video_frame_buffer_show(video, vfb))
+     goto no_wait_vblank;
+
    _e_video_wait_vblank(video);
+   return;
+
+no_wait_vblank:
+   _e_video_vblank_handler(video);
+   return;
 }
 
 static void
