@@ -72,12 +72,12 @@ _e_devmgr_buf_image_attr(tbm_format tbmfmt, int w, int h, uint *pitches, uint *o
       case TBM_FORMAT_YUV420:
       case TBM_FORMAT_YVU420:
         if (num_plane) *num_plane = 3;
-        size = ROUNDUP(w, 4);
+        size = ROUNDUP(w, 2);
         if (pitches) pitches[0] = size;
         size *= h;
         if (lengths) lengths[0] = size;
         if (offsets) offsets[1] = size;
-        tmp = ROUNDUP((w >> 1), 4);
+        tmp = ROUNDUP((w >> 1), 2);
         if (pitches) pitches[1] = pitches[2] = tmp;
         tmp *= (h >> 1);
         size += tmp;

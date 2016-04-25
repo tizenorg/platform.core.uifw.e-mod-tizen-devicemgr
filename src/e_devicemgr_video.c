@@ -519,10 +519,10 @@ _e_video_geometry_cal_viewport(E_Video *video)
      break;
    }
 
-   VDB("geometry(%dx%d %d,%d,%d,%d %d,%d,%d,%d %d)",
+   VIN("geometry(%dx%d  %d,%d %dx%d  %d,%d %dx%d  %d)",
        video->geo.input_w, video->geo.input_h,
-       video->geo.input_r.x, video->geo.input_r.y, video->geo.input_r.w, video->geo.input_r.h,
-       video->geo.output_r.x, video->geo.output_r.y, video->geo.output_r.w, video->geo.output_r.h,
+       EINA_RECTANGLE_ARGS(&video->geo.input_r),
+       EINA_RECTANGLE_ARGS(&video->geo.output_r),
        video->geo.transform);
 
    return EINA_TRUE;
@@ -534,6 +534,7 @@ _e_video_geometry_cal_map(E_Video *video)
    E_Client *ec = video->ec;
    const Evas_Map *m;
    Evas_Coord x1, x2, y1, y2;
+   Eina_Rectangle old_output_r = video->geo.output_r;
 
    EINA_SAFETY_ON_NULL_RETURN(ec);
    EINA_SAFETY_ON_NULL_RETURN(video->ec->frame);
@@ -554,11 +555,134 @@ _e_video_geometry_cal_map(E_Video *video)
    video->geo.output_r.w = (video->geo.output_r.w + 1) & ~1;
    video->geo.output_r.h = y2 - y1;
 
-   VDB("frame(%p) m(%p) output(%d,%d %dx%d) => (%d,%d %dx%d)",
-       ec->frame, m, video->geo.output_r.x, video->geo.output_r.y,
-       video->geo.output_r.w, video->geo.output_r.h,
-       video->geo.output_r.x, video->geo.output_r.y,
-       video->geo.output_r.w, video->geo.output_r.h);
+   VDB("frame(%p) m(%p) output(%d,%d %dx%d) => (%d,%d %dx%d)", ec->frame, m,
+       EINA_RECTANGLE_ARGS(&old_output_r), EINA_RECTANGLE_ARGS(&video->geo.output_r));
+}
+
+static void
+_e_video_geometry_cal_to_input(int output_w, int output_h, int input_w, int input_h,
+                               tdm_transform trasnform, int ox, int oy, int *ix, int *iy)
+{
+   float ratio_w, ratio_h;
+
+   switch(trasnform)
+     {
+      case TDM_TRANSFORM_NORMAL:
+      default:
+        *ix = ox, *iy = oy;
+        break;
+      case TDM_TRANSFORM_90:
+        *ix = oy, *iy = output_w - ox;
+        break;
+      case TDM_TRANSFORM_180:
+        *ix = output_w - ox, *iy = output_h - oy;
+        break;
+      case TDM_TRANSFORM_270:
+        *ix = output_h - oy, *iy = ox;
+        break;
+      case TDM_TRANSFORM_FLIPPED:
+        *ix = output_w - ox, *iy = oy;
+        break;
+      case TDM_TRANSFORM_FLIPPED_90:
+        *ix = oy, *iy = ox;
+        break;
+      case TDM_TRANSFORM_FLIPPED_180:
+        *ix = ox, *iy = output_h - oy;
+        break;
+      case TDM_TRANSFORM_FLIPPED_270:
+        *ix = output_h - oy, *iy = output_w - ox;
+        break;
+     }
+   if (trasnform & 0x1)
+     {
+        ratio_w = (float)input_w / output_h;
+        ratio_h = (float)input_h / output_w;
+     }
+   else
+     {
+        ratio_w = (float)input_w / output_w;
+        ratio_h = (float)input_h / output_h;
+     }
+   *ix *= ratio_w;
+   *iy *= ratio_h;
+}
+
+static void
+_e_video_geometry_cal_to_input_rect(E_Video * video, Eina_Rectangle *srect, Eina_Rectangle *drect)
+{
+   int xf1, yf1, xf2, yf2;
+
+   /* first transform box coordinates if the scaler is set */
+
+   xf1 = srect->x;
+   yf1 = srect->y;
+   xf2 = srect->x + srect->w;
+   yf2 = srect->y + srect->h;
+
+   _e_video_geometry_cal_to_input(video->geo.output_r.w, video->geo.output_r.h,
+                                  video->geo.input_r.w, video->geo.input_r.h,
+                                  video->geo.transform, xf1, yf1, &xf1, &yf1);
+   _e_video_geometry_cal_to_input(video->geo.output_r.w, video->geo.output_r.h,
+                                  video->geo.input_r.w, video->geo.input_r.h,
+                                  video->geo.transform, xf2, yf2, &xf2, &yf2);
+
+   drect->x = MIN(xf1, xf2);
+   drect->y = MIN(yf1, yf2);
+   drect->w = MAX(xf1, xf2) - drect->x;
+   drect->h = MAX(yf1, yf2) - drect->y;
+}
+
+static Eina_Bool
+_e_video_geometry_cal(E_Video * video)
+{
+   Eina_Rectangle screen = {0,};
+   Eina_Rectangle output_r, input_r;
+
+   /* get geometry information with buffer scale, transform and viewport. */
+   if (!_e_video_geometry_cal_viewport(video))
+     return EINA_FALSE;
+
+   _e_video_geometry_cal_map(video);
+
+   ecore_drm_output_current_resolution_get(video->drm_output, &screen.w, &screen.h, NULL);
+
+   if (video->geo.output_r.x >= 0 && video->geo.output_r.y >= 0 &&
+       (video->geo.output_r.x + video->geo.output_r.w) <= screen.w &&
+       (video->geo.output_r.y + video->geo.output_r.h) <= screen.h)
+     return EINA_TRUE;
+
+   /* TODO: need to improve */
+
+   output_r = video->geo.output_r;
+   if (!eina_rectangle_intersection(&output_r, &screen))
+     {
+        VER("output_r(%d,%d %dx%d) screen(%d,%d %dx%d) => intersect(%d,%d %dx%d)",
+            EINA_RECTANGLE_ARGS(&video->geo.output_r),
+            EINA_RECTANGLE_ARGS(&screen), EINA_RECTANGLE_ARGS(&output_r));
+        return EINA_TRUE;
+     }
+
+   output_r.x -= video->geo.output_r.x;
+   output_r.y -= video->geo.output_r.y;
+
+   _e_video_geometry_cal_to_input_rect(video, &output_r, &input_r);
+
+   VDB("output(%d,%d %dx%d) input(%d,%d %dx%d)",
+       EINA_RECTANGLE_ARGS(&output_r), EINA_RECTANGLE_ARGS(&input_r));
+
+   output_r.x += video->geo.output_r.x;
+   output_r.y += video->geo.output_r.y;
+
+   output_r.x = output_r.x & ~1;
+   output_r.w = (output_r.w + 1) & ~1;
+
+   input_r.x = input_r.x & ~1;
+   input_r.w = (input_r.w + 1) & ~1;
+
+   video->geo.output_r = output_r;
+   video->geo.input_r = input_r;
+
+   return EINA_TRUE;
 }
 
 static void
@@ -799,6 +923,7 @@ _e_video_create(struct wl_resource *video_object, struct wl_resource *surface)
    video->output_align = -1;
    video->pp_align = -1;
    video->video_align = -1;
+
    VIN("create. ec(%p) wl_surface@%d", ec, wl_resource_get_id(video->surface));
 
    ec->comp_data->video_client = 1;
@@ -1051,11 +1176,8 @@ _e_video_render(E_Video *video)
 
    _e_video_input_buffer_valid(video, comp_buffer);
 
-   /* get geometry information with buffer scale, transform and viewport. */
-   if (!_e_video_geometry_cal_viewport(video))
+   if (!_e_video_geometry_cal(video))
      return;
-
-   _e_video_geometry_cal_map(video);
 
    if (!_e_video_check_if_pp_needed(video))
      {
