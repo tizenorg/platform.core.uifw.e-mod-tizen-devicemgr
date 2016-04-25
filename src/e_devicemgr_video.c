@@ -519,7 +519,7 @@ _e_video_geometry_cal_viewport(E_Video *video)
      break;
    }
 
-   VIN("geometry(%dx%d  %d,%d %dx%d  %d,%d %dx%d  %d)",
+   VDB("geometry(%dx%d  %d,%d %dx%d  %d,%d %dx%d  %d)",
        video->geo.input_w, video->geo.input_h,
        EINA_RECTANGLE_ARGS(&video->geo.input_r),
        EINA_RECTANGLE_ARGS(&video->geo.output_r),
