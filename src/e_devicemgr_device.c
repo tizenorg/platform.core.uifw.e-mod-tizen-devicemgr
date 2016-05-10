@@ -101,7 +101,7 @@ _e_devicemgr_del_device(const char *name, const char *identifier, const char *se
 
    if (!e_comp) return;
    if (!e_comp_wl) return;
-   if (!e_comp_wl->wl.disp);
+   if (!e_comp_wl->wl.disp) return;
 
    TRACE_INPUT_BEGIN(_e_devicemgr_del_device);
 
