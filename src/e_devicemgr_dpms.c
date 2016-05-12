@@ -123,7 +123,18 @@ e_devicemgr_dpms_init(void)
 {
    if (eldbus_init() == 0) return 0;
 
+   if (e_config->sleep_for_dri)
+     {
+        /* TODO: need sleep_for_dbus? */
+        while (access("/tmp/dbus_launch", F_OK) != 0)
+          usleep(10000);
+        SLOGI("dbus_launch ready");
+     }
+
    conn = eldbus_connection_get(ELDBUS_CONNECTION_TYPE_SYSTEM);
+   if(!conn)
+     SLOGI("eldbus_connection_get fail..");
+
    EINA_SAFETY_ON_NULL_GOTO(conn, failed);
 
    iface = eldbus_service_interface_register(conn, PATH, &iface_desc);
