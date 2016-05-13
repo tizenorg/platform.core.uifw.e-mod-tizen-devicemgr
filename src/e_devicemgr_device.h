@@ -27,10 +27,10 @@
 #define TRACE_INPUT_END()
 #endif
 
-#define DMERR(msg, ARG...) ERR("[tizen_devicemgr][%s:%d] "msg, __FUNCTION__, __LINE__, ##ARG)
-#define DMWRN(msg, ARG...) WRN("[tizen_devicemgr][%s:%d] "msg, __FUNCTION__, __LINE__, ##ARG)
-#define DMINF(msg, ARG...) INF("[tizen_devicemgr][%s:%d] "msg, __FUNCTION__, __LINE__, ##ARG)
-#define DMDBG(msg, ARG...) DBG("[tizen_devicemgr][%s:%d] "msg, __FUNCTION__, __LINE__, ##ARG)
+#define DMERR(msg, ARG...) ERR("[%s:%d] "msg, __FUNCTION__, __LINE__, ##ARG)
+#define DMWRN(msg, ARG...) WRN("[%s:%d] "msg, __FUNCTION__, __LINE__, ##ARG)
+#define DMINF(msg, ARG...) INF("[%s:%d] "msg, __FUNCTION__, __LINE__, ##ARG)
+#define DMDBG(msg, ARG...) DBG("[%s:%d] "msg, __FUNCTION__, __LINE__, ##ARG)
 
 #ifdef ENABLE_CYNARA
 #include <cynara-session.h>
