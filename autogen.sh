@@ -1,4 +1,4 @@
-#!/bin/sh
+klasdjf;lkasjdf;lk j#!/bin/sh
 # Run this to generate all the initial makefiles, etc.
 
 #rm -rf autom4te.cache
