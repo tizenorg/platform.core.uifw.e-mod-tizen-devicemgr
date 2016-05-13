@@ -1,4 +1,5 @@
 #include "e_devicemgr_device.h"
+#include "e_devicemgr_privates.h"
 #include <tizen-extension-server-protocol.h>
 #include <Ecore_Drm.h>
 
@@ -983,6 +984,47 @@ finish:
    tizen_input_device_manager_send_error(resource, ret);
 }
 
+/* being edited */
+static  int
+_e_devicemgr_pointer_warp(int x, int y)
+{
+   ecore_evas_pointer_warp(e_comp->ee, x, y);
+   DMDBG("The pointer warped to (%d, %d) !\n", x, y);
+
+   return TIZEN_INPUT_DEVICE_MANAGER_ERROR_NONE;
+}
+
+static void
+_e_input_devmgr_cb_pointer_warp(struct wl_client *client, struct wl_resource *resource, struct wl_resource *surface, wl_fixed_t x, wl_fixed_t y)
+{
+   E_Client *ec = NULL;
+   int ret;
+
+   if (!(ec = wl_resource_get_user_data(surface)) || !ec->visible)
+     {
+        DMDBG("The given surface is invalid or invisible !\n");
+        tizen_input_device_manager_send_error(resource, TIZEN_INPUT_DEVICE_MANAGER_ERROR_INVALID_SURFACE);
+        return;
+     }
+
+   if (e_pointer_is_hidden(e_comp->pointer))
+     {
+        DMDBG("The pointer is hidden !\n");
+        tizen_input_device_manager_send_error(resource, TIZEN_INPUT_DEVICE_MANAGER_ERROR_NO_POINTER_AVAILABLE);
+        return;
+     }
+
+   if (ec != e_comp_wl->ptr.ec)
+     {
+        DMDBG("Pointer is not on the given surface  !\n");
+        tizen_input_device_manager_send_error(resource, TIZEN_INPUT_DEVICE_MANAGER_ERROR_INVALID_SURFACE);
+        return;
+     }
+
+   ret = _e_devicemgr_pointer_warp(ec->client.x + wl_fixed_to_int(x), ec->client.y + wl_fixed_to_int(y));
+   tizen_input_device_manager_send_error(resource, ret);
+}
+
 static const struct tizen_input_device_manager_interface _e_input_devmgr_implementation = {
    _e_input_devmgr_cb_block_events,
    _e_input_devmgr_cb_unblock_events,
@@ -991,6 +1033,7 @@ static const struct tizen_input_device_manager_interface _e_input_devmgr_impleme
    _e_input_devmgr_cb_generate_key,
    _e_input_devmgr_cb_generate_pointer,
    _e_input_devmgr_cb_generate_touch,
+   _e_input_devmgr_cb_pointer_warp,
 };
 
 static void
