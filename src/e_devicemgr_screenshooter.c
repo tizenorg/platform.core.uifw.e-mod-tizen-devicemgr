@@ -27,6 +27,10 @@ typedef struct _E_Mirror
    Ecore_Drm_Output *drm_output;
    Ecore_Drm_Device *drm_device;
 
+   tdm_display *tdm_dpy;
+   tdm_output *tdm_output;
+   tdm_layer *tdm_primary_layer;
+
    /* vblank info */
    int per_vblank;
    Eina_Bool wait_vblank;
@@ -188,17 +192,18 @@ static E_Devmgr_Buf*
 _e_tz_screenmirror_ui_buffer_get(E_Mirror *mirror)
 {
    E_Devmgr_Buf *mbuf;
-   Ecore_Drm_Fb *fb;
+   tbm_surface_h buffer;
    Eina_List *l;
+   tdm_error err = TDM_ERROR_NONE;
 
-   fb = ecore_drm_display_output_primary_layer_fb_get(mirror->drm_output);
-   EINA_SAFETY_ON_NULL_RETURN_VAL(fb, NULL);
+   buffer = tdm_layer_get_displaying_buffer(mirror->tdm_primary_layer, &err);
+   EINA_SAFETY_ON_FALSE_RETURN_VAL(err == TDM_ERROR_NONE, NULL);
 
    EINA_LIST_FOREACH(mirror->ui_buffer_list, l, mbuf)
-     if (mbuf->tbm_surface == fb->hal_buffer)
+     if (mbuf->tbm_surface == buffer)
        return mbuf;
 
-   mbuf = e_devmgr_buffer_create_tbm(fb->hal_buffer);
+   mbuf = e_devmgr_buffer_create_tbm(buffer);
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, NULL);
 
    e_devmgr_buffer_free_func_add(mbuf, _e_tz_screenmirror_ui_buffer_cb_free, mirror);
@@ -570,6 +575,9 @@ _e_tz_screenmirror_create(struct wl_client *client, struct wl_resource *shooter_
    Ecore_Drm_Device *dev;
    Eina_List *devs;
    Eina_List *l, *ll;
+   tdm_error err = TDM_ERROR_NONE;
+   int count, i;
+   unsigned int crtc_id;
 
    mirror = E_NEW(E_Mirror, 1);
    EINA_SAFETY_ON_NULL_RETURN_VAL(mirror, NULL);
@@ -596,6 +604,37 @@ _e_tz_screenmirror_create(struct wl_client *client, struct wl_resource *shooter_
    eina_list_free(devs);
    EINA_SAFETY_ON_NULL_GOTO(mirror->drm_output, fail_create);
 
+   mirror->tdm_dpy = tdm_display_init(&err);
+   EINA_SAFETY_ON_NULL_GOTO(mirror->tdm_dpy, fail_create);
+
+   crtc_id = ecore_drm_output_crtc_id_get(mirror->drm_output);
+
+   mirror->tdm_output = tdm_display_get_output(mirror->tdm_dpy, crtc_id, &err);
+   EINA_SAFETY_ON_FALSE_GOTO(err == TDM_ERROR_NONE, fail_create);
+
+   err = tdm_output_get_layer_count(mirror->tdm_output, &count);
+   EINA_SAFETY_ON_FALSE_GOTO(err == TDM_ERROR_NONE, fail_create);
+   EINA_SAFETY_ON_FALSE_GOTO(count >= 0, fail_create);
+
+   for (i = 0; i < count; i++)
+     {
+        tdm_layer *layer;
+        tdm_layer_capability capability;
+
+        layer = tdm_output_get_layer(mirror->tdm_output, i, &err);
+        EINA_SAFETY_ON_FALSE_GOTO(err == TDM_ERROR_NONE, fail_create);
+
+        err = tdm_layer_get_capabilities (layer, &capability);
+        EINA_SAFETY_ON_FALSE_GOTO(err == TDM_ERROR_NONE, fail_create);
+
+        if (capability & TDM_LAYER_CAPABILITY_PRIMARY)
+          {
+            mirror->tdm_primary_layer = layer;
+            break;
+          }
+     }
+   EINA_SAFETY_ON_NULL_GOTO(mirror->tdm_primary_layer, fail_create);
+
    INF("per_vblank(%d)", mirror->per_vblank);
 
    mirror->client_destroy_listener.notify = _e_tz_screenmirror_cb_client_destroy;
@@ -603,6 +642,9 @@ _e_tz_screenmirror_create(struct wl_client *client, struct wl_resource *shooter_
 
    return mirror;
 fail_create:
+   if (mirror->tdm_dpy)
+      tdm_display_deinit(mirror->tdm_dpy);
+
    E_FREE(mirror);
    return NULL;
 }
@@ -635,6 +677,9 @@ _e_tz_screenmirror_destroy(E_Mirror *mirror)
 
    EINA_LIST_FOREACH_SAFE(mirror->ui_buffer_list, l, ll, mbuf)
      e_devmgr_buffer_unref(mbuf);
+
+   if (mirror->tdm_dpy)
+      tdm_display_deinit(mirror->tdm_dpy);
 
    free(mirror);
 
