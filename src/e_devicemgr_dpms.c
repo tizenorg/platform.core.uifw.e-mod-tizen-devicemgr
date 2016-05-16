@@ -127,7 +127,7 @@ e_devicemgr_dpms_init(void)
      {
         /* TODO: need sleep_for_dbus? */
         while (access("/tmp/dbus_launch", F_OK) != 0)
-          usleep(10000);
+          usleep(50000);
         SLOGI("dbus_launch ready");
      }
 
