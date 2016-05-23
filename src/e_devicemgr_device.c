@@ -144,7 +144,10 @@ _e_devicemgr_del_device(const char *name, const char *identifier, const char *se
      }
 
    EINA_LIST_FREE(dev->resources, res)
-     wl_resource_destroy(res);
+     {
+        wl_resource_set_user_data(res, NULL);
+        wl_resource_destroy(res);
+     }
 
    e_comp_wl->input_device_manager.device_list = eina_list_remove(e_comp_wl->input_device_manager.device_list, dev);
 
