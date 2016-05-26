@@ -73,9 +73,7 @@ static void _e_video_destroy(E_Video *video);
 static void _e_video_render(E_Video *video);
 static Eina_Bool _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb);
 static void _e_video_frame_buffer_destroy(E_Video_Fb *vfb);
-static void _e_video_wait_vblank(E_Video *video);
 static void _e_video_buffer_show(E_Video *video, E_Devmgr_Buf *mbuf, Eina_Rectangle *visible, unsigned int transform);
-static void _e_video_vblank_handler(void *data);
 
 static int
 gcd(int a, int b)
@@ -736,6 +734,43 @@ _e_video_frame_buffer_destroy(E_Video_Fb *vfb)
    free (vfb);
 }
 
+static void
+_e_video_commit_handler(tdm_output *output, unsigned int sequence,
+                        unsigned int tv_sec, unsigned int tv_usec,
+                        void *user_data)
+{
+   E_Video *video;
+   Eina_List *l;
+   E_Video_Fb *vfb;
+
+   EINA_LIST_FOREACH(video_list, l, video)
+     {
+        if (video == user_data) break;
+     }
+
+   if (!video) return;
+
+   video->wait_vblank = EINA_FALSE;
+
+   vfb = eina_list_nth(video->waiting_list, 0);
+   if (!vfb) return;
+
+   video->waiting_list = eina_list_remove(video->waiting_list, vfb);
+
+   if (video->current_fb)
+     {
+        _e_video_frame_buffer_destroy(video->current_fb);
+        video->current_fb = NULL;
+     }
+
+   video->current_fb = vfb;
+
+   VDB("mbuf(%d) showing", MSTAMP(vfb->mbuf));
+
+   if ((vfb = eina_list_nth(video->waiting_list, 0)))
+     _e_video_frame_buffer_show(video, vfb);
+}
+
 static Eina_Bool
 _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
 {
@@ -774,7 +809,7 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
    ret = tdm_layer_set_buffer(video->layer, vfb->mbuf->tbm_surface);
    EINA_SAFETY_ON_FALSE_GOTO(ret == TDM_ERROR_NONE, show_fail);
 
-   ret = tdm_output_commit(video->output, 0, NULL, NULL);
+   ret = tdm_output_commit(video->output, 0, _e_video_commit_handler, video);
    EINA_SAFETY_ON_FALSE_GOTO(ret == TDM_ERROR_NONE, show_fail);
 
    if (!video->punched)
@@ -833,77 +868,16 @@ _e_video_buffer_show(E_Video *video, E_Devmgr_Buf *mbuf, Eina_Rectangle *visible
      return;
 
    if (e_devicemgr_dpms_get(video->drm_output))
-     goto no_wait_vblank;
+     goto no_commit;
 
    if (!_e_video_frame_buffer_show(video, vfb))
-     goto no_wait_vblank;
+     goto no_commit;
 
-   _e_video_wait_vblank(video);
    return;
 
-no_wait_vblank:
-   _e_video_vblank_handler(video);
+no_commit:
+   _e_video_commit_handler(NULL, 0, 0, 0, video);
    return;
-}
-
-static void
-_e_video_vblank_handler(void *data)
-{
-   E_Video *video;
-   Eina_List *l;
-   E_Video_Fb *vfb;
-
-   EINA_LIST_FOREACH(video_list, l, video)
-     {
-        if (video == data) break;
-     }
-
-   if (!video) return;
-
-   video->wait_vblank = EINA_FALSE;
-
-   vfb = eina_list_nth(video->waiting_list, 0);
-   if (!vfb) return;
-
-   video->waiting_list = eina_list_remove(video->waiting_list, vfb);
-
-   if (video->current_fb)
-     {
-        _e_video_frame_buffer_destroy(video->current_fb);
-        video->current_fb = NULL;
-     }
-
-   video->current_fb = vfb;
-
-   VDB("mbuf(%d) showing", MSTAMP(vfb->mbuf));
-
-   if ((vfb = eina_list_nth(video->waiting_list, 0)))
-     {
-        _e_video_frame_buffer_show(video, vfb);
-        _e_video_wait_vblank(video);
-     }
-}
-
-static void
-_e_video_wait_vblank(E_Video *video)
-{
-    /* If not DPMS_ON, we call vblank handler directory to do post-process
-     * for video frame buffer handling.
-     */
-   if (e_devicemgr_dpms_get(video->drm_output))
-     {
-        _e_video_vblank_handler((void*)video);
-        return;
-     }
-
-   if (video->wait_vblank) return;
-   video->wait_vblank = EINA_TRUE;
-
-   if (!ecore_drm_output_wait_vblank(video->drm_output, 1, _e_video_vblank_handler, video))
-     {
-         VER("failed: ecore_drm_output_wait_vblank");
-         return;
-     }
 }
 
 static E_Video*
