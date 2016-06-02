@@ -138,6 +138,10 @@ _e_devicemgr_del_device(const char *name, const char *identifier, const char *se
              EINA_LIST_FOREACH(dev->resources, lll, res)
                {
                   if (wl_resource_get_client(res) != wc) continue;
+                  if (dev_mgr_res != wl_resource_get_user_data(res))
+                    {
+                       continue;
+                    }
                   tizen_input_device_manager_send_device_remove(dev_mgr_res, serial, dev->identifier, res, seat_res);
                }
           }
@@ -146,7 +150,6 @@ _e_devicemgr_del_device(const char *name, const char *identifier, const char *se
    EINA_LIST_FREE(dev->resources, res)
      {
         wl_resource_set_user_data(res, NULL);
-        wl_resource_destroy(res);
      }
 
    e_comp_wl->input_device_manager.device_list = eina_list_remove(e_comp_wl->input_device_manager.device_list, dev);
@@ -223,6 +226,7 @@ _e_devicemgr_add_device(const char *name, const char *identifier, const char *se
              dev->resources = eina_list_append(dev->resources, res);
              wl_resource_set_implementation(res, &_e_devicemgr_device_interface, dev,
                                             _e_devicemgr_device_cb_device_unbind);
+             wl_resource_set_user_data(res, dev_mgr_res);
              tizen_input_device_manager_send_device_add(dev_mgr_res, serial, dev->identifier, res, seat_res);
              tizen_input_device_send_device_info(res, dev->name, dev->capability, TIZEN_INPUT_DEVICE_SUBCLAS_NONE, &axes);
           }
