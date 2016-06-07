@@ -1535,6 +1535,7 @@ e_devicemgr_video_init(void)
 void
 e_devicemgr_video_fini(void)
 {
+   E_FREE_LIST(video_hdlrs, ecore_event_handler_del);
 }
 
 Eina_List*
