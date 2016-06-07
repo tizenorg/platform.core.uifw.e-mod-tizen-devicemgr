@@ -133,31 +133,31 @@ e_devicemgr_tdm_output_get(Ecore_Drm_Output *output)
    int pipe = 0;
 
    if (!output)
-   {
-      int i, count = 0;
-      tdm_display_get_output_count(e_devmgr_dpy->tdm, &count);
-      for (i = 0; i < count; i++)
-      {
-         tdm_output *toutput = tdm_display_get_output(e_devmgr_dpy->tdm, i, NULL);
-         tdm_output_conn_status status = TDM_OUTPUT_CONN_STATUS_DISCONNECTED;
+     {
+        int i, count = 0;
+        tdm_display_get_output_count(e_devmgr_dpy->tdm, &count);
+        for (i = 0; i < count; i++)
+          {
+             tdm_output *toutput = tdm_display_get_output(e_devmgr_dpy->tdm, i, NULL);
+             tdm_output_conn_status status = TDM_OUTPUT_CONN_STATUS_DISCONNECTED;
 
-         if (!toutput)
-            continue;
+             if (!toutput)
+               continue;
 
-         tdm_output_get_conn_status(toutput, &status);
-         if (status == TDM_OUTPUT_CONN_STATUS_CONNECTED)
-         {
-            tdm_output_type type;
-            tdm_output_get_output_type(toutput, &type);
-            INF("found tdm output: type(%d)", type);
-            return toutput;
-         }
-      }
+             tdm_output_get_conn_status(toutput, &status);
+             if (status != TDM_OUTPUT_CONN_STATUS_DISCONNECTED)
+               {
+                  tdm_output_type type;
+                  tdm_output_get_output_type(toutput, &type);
+                  INF("found tdm output: type(%d)", type);
+                  return toutput;
+               }
+          }
 
-      ERR("not found tdm output");
+        ERR("not found tdm output");
 
-      return NULL;
-   }
+        return NULL;
+     }
 
    devs = eina_list_clone(ecore_drm_devices_get());
    EINA_LIST_FOREACH(devs, l, dev)
