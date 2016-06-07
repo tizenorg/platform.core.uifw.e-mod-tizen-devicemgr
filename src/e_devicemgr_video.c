@@ -2,6 +2,7 @@
 #include <values.h>
 #include "e_devicemgr_video.h"
 #include "e_devicemgr_dpms.h"
+#include "e_devicemgr_viewport.h"
 
 //#define DUMP_BUFFER
 
@@ -1490,9 +1491,47 @@ _e_devicemgr_video_cb_get_object(struct wl_client *client,
                                   video, _e_devicemgr_video_object_destroy);
 }
 
+static void
+_e_devicemgr_video_cb_get_viewport(struct wl_client *client,
+                                   struct wl_resource *resource,
+                                   uint32_t id,
+                                   struct wl_resource *subsurface)
+{
+   E_Client *ec;
+
+   if (!(ec = wl_resource_get_user_data(subsurface))) return;
+   if (!ec->comp_data) return;
+
+   if (!ec->comp_data->sub.data)
+     {
+        wl_resource_post_error(resource,
+                               WL_DISPLAY_ERROR_INVALID_OBJECT,
+                               "wl_subsurface@%d is not subsurface",
+                               wl_resource_get_id(subsurface));
+        return;
+     }
+
+   if (ec->comp_data && ec->comp_data->scaler.viewport)
+     {
+        wl_resource_post_error(resource,
+                               TIZEN_VIDEO_ERROR_VIEWPORT_EXISTS,
+                               "a viewport for that subsurface already exists");
+        return;
+     }
+
+   if (!e_devicemgr_viewport_create(resource, id, subsurface))
+     {
+        ERR("Failed to create viewport for wl_subsurface@%d",
+            wl_resource_get_id(subsurface));
+        wl_client_post_no_memory(client);
+        return;
+     }
+}
+
 static const struct tizen_video_interface _e_devicemgr_video_interface =
 {
-   _e_devicemgr_video_cb_get_object
+   _e_devicemgr_video_cb_get_object,
+   _e_devicemgr_video_cb_get_viewport,
 };
 
 static void
