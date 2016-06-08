@@ -74,6 +74,8 @@ static void _e_video_render(E_Video *video);
 static Eina_Bool _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb);
 static void _e_video_frame_buffer_destroy(E_Video_Fb *vfb);
 static void _e_video_buffer_show(E_Video *video, E_Devmgr_Buf *mbuf, Eina_Rectangle *visible, unsigned int transform);
+static void _e_video_input_buffer_cb_release(tbm_surface_h surface, void *user_data);
+static void _e_video_pp_buffer_cb_release(tbm_surface_h surface, void *user_data);
 
 static int
 gcd(int a, int b)
@@ -880,6 +882,22 @@ no_commit:
    return;
 }
 
+static void
+_e_video_cb_evas_resize(void *data, Evas *e EINA_UNUSED, Evas_Object *obj EINA_UNUSED, void *event_info EINA_UNUSED)
+{
+   E_Video *video = data;
+
+   _e_video_render(video);
+}
+
+static void
+_e_video_cb_evas_move(void *data, Evas *e EINA_UNUSED, Evas_Object *obj EINA_UNUSED, void *event_info EINA_UNUSED)
+{
+   E_Video *video = data;
+
+   _e_video_render(video);
+}
+
 static E_Video*
 _e_video_create(struct wl_resource *video_object, struct wl_resource *surface)
 {
@@ -931,6 +949,11 @@ _e_video_set(E_Video *video, E_Client *ec)
 
    video->ec = ec;
    video->window = e_client_util_win_get(ec);
+
+   evas_object_event_callback_add(ec->frame, EVAS_CALLBACK_RESIZE,
+                                  _e_video_cb_evas_resize, video);
+   evas_object_event_callback_add(ec->frame, EVAS_CALLBACK_MOVE,
+                                  _e_video_cb_evas_move, video);
 
    video->drm_output = _e_video_drm_output_find(video->ec);
    EINA_SAFETY_ON_NULL_RETURN(video->drm_output);
@@ -1012,6 +1035,11 @@ _e_video_destroy(E_Video *video)
    if (!video)
       return;
 
+   evas_object_event_callback_del_full(video->ec->frame, EVAS_CALLBACK_RESIZE,
+                                       _e_video_cb_evas_resize, video);
+   evas_object_event_callback_del_full(video->ec->frame, EVAS_CALLBACK_MOVE,
+                                       _e_video_cb_evas_move, video);
+
    wl_resource_set_destructor(video->video_object, NULL);
 
    /* hide video plane first */
@@ -1026,16 +1054,24 @@ _e_video_destroy(E_Video *video)
    EINA_LIST_FOREACH_SAFE(video->waiting_list, l, ll, vfb)
      _e_video_frame_buffer_destroy(vfb);
 
+   /* others */
+   EINA_LIST_FOREACH_SAFE(video->input_buffer_list, l, ll, mbuf)
+     {
+        tdm_buffer_remove_release_handler(mbuf->tbm_surface,
+                                          _e_video_input_buffer_cb_release, video);
+        e_devmgr_buffer_unref(mbuf);
+     }
+
+   EINA_LIST_FOREACH_SAFE(video->pp_buffer_list, l, ll, mbuf)
+     {
+        tdm_buffer_remove_release_handler(mbuf->tbm_surface,
+                                          _e_video_pp_buffer_cb_release, video);
+        e_devmgr_buffer_unref(mbuf);
+     }
+
    /* destroy converter second */
    if (video->pp)
      tdm_pp_destroy(video->pp);
-
-   /* others */
-   EINA_LIST_FOREACH_SAFE(video->input_buffer_list, l, ll, mbuf)
-     e_devmgr_buffer_unref(mbuf);
-
-   EINA_LIST_FOREACH_SAFE(video->pp_buffer_list, l, ll, mbuf)
-     e_devmgr_buffer_unref(mbuf);
 
    video_list = eina_list_remove(video_list, video);
 
@@ -1145,8 +1181,21 @@ _e_video_render(E_Video *video)
 
    EINA_SAFETY_ON_NULL_RETURN(video->ec);
 
+   /* buffer can be NULL when camera/video's mode changed. Do nothing and
+    * keep previous frame in this case.
+    */
+   if (!video->ec->pixmap)
+     return;
+
    comp_buffer = e_pixmap_resource_get(video->ec->pixmap);
-   EINA_SAFETY_ON_NULL_RETURN(comp_buffer);
+   if (!comp_buffer)
+     return;
+
+   _e_video_format_info_get(video);
+
+   /* not interested with other buffer type */
+   if (!wayland_tbm_server_get_surface(NULL, comp_buffer->resource))
+     return;
 
    _e_video_input_buffer_valid(video, comp_buffer);
 
@@ -1254,7 +1303,6 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
 {
    E_Client *ec;
    E_Event_Client *ev = event;
-   E_Comp_Wl_Buffer *comp_buffer;
    E_Video *video;
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(ev, ECORE_CALLBACK_PASS_ON);
@@ -1267,7 +1315,7 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
 #ifdef DUMP_BUFFER
    if (ec->comp_data->sub.data && ec->pixmap)
      {
-        comp_buffer = e_pixmap_resource_get(ec->pixmap);
+        E_Comp_Wl_Buffer *comp_buffer = e_pixmap_resource_get(ec->pixmap);
         if (comp_buffer && wl_shm_buffer_get(comp_buffer->resource))
           {
              E_Devmgr_Buf *mbuf = e_devmgr_buffer_create(comp_buffer->resource);
@@ -1282,19 +1330,6 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
    /* not interested with non video_surface,  */
    video = find_video_with_surface(ec->comp_data->surface);
    if (!video) return ECORE_CALLBACK_PASS_ON;
-
-   /* buffer can be NULL when camera/video's mode changed. Do nothing and
-    * keep previous frame in this case.
-    */
-   if (!ec->pixmap) return ECORE_CALLBACK_PASS_ON;
-   comp_buffer = e_pixmap_resource_get(ec->pixmap);
-   if (!comp_buffer) return ECORE_CALLBACK_PASS_ON;
-
-   /* not interested with other buffer type */
-   if (!wayland_tbm_server_get_surface(NULL, comp_buffer->resource))
-      return ECORE_CALLBACK_PASS_ON;
-
-   _e_video_format_info_get(video);
 
    DBG("======================================");
    _e_video_render(video);
