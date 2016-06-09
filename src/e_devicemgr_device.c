@@ -1192,6 +1192,32 @@ e_devicemgr_device_init(void)
 void
 e_devicemgr_device_fini(void)
 {
+   E_Comp_Wl_Input_Device *dev;
+   struct wl_resource *res;
+   e_devicemgr_input_device_user_data *device_user_data;
+
+   /* destroy the global seat resource */
+   if (e_comp_wl->input_device_manager.global)
+     wl_global_destroy(e_comp_wl->input_device_manager.global);
+   e_comp_wl->input_device_manager.global = NULL;
+
+   EINA_LIST_FREE(e_comp_wl->input_device_manager.device_list, dev)
+     {
+        if (dev->name) eina_stringshare_del(dev->name);
+        if (dev->identifier) eina_stringshare_del(dev->identifier);
+        EINA_LIST_FREE(dev->resources, res)
+          {
+             device_user_data = wl_resource_get_user_data(res);
+             device_user_data->dev = NULL;
+             device_user_data->dev_mgr_res = NULL;
+             E_FREE(device_user_data);
+
+             wl_resource_set_user_data(res, NULL);
+          }
+
+        free(dev);
+     }
+
    E_FREE_LIST(handlers, ecore_event_handler_del);
 
    /* deinitialization of cynara if it has been initialized */
