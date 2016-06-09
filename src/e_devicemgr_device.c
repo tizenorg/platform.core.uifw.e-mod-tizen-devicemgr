@@ -640,13 +640,20 @@ _e_input_devmgr_inputgen_generator_remove(void)
 }
 
 static void
-_e_input_devmgr_inputgen_client_cb_destroy(struct wl_listener *l EINA_UNUSED, void *data EINA_UNUSED)
+_e_input_devmgr_inputgen_client_cb_destroy(struct wl_listener *l, void *data)
 {
+   struct wl_client *client = (struct wl_client *)data;
+
    input_devmgr_data->inputgen.ref--;
    if (input_devmgr_data->inputgen.ref == 0)
      {
         _e_input_devmgr_inputgen_generator_remove();
      }
+
+   E_FREE(l);
+
+   input_devmgr_data->inputgen.clients =
+      eina_list_remove(input_devmgr_data->inputgen.clients, client);
 }
 
 static void
@@ -657,6 +664,9 @@ _e_input_devmgr_inputgen_client_add(struct wl_client *client)
    destroy_listener = E_NEW(struct wl_listener, 1);
    destroy_listener->notify = _e_input_devmgr_inputgen_client_cb_destroy;
    wl_client_add_destroy_listener(client, destroy_listener);
+
+   input_devmgr_data->inputgen.clients =
+      eina_list_append(input_devmgr_data->inputgen.clients, client);
 }
 
 static void
@@ -1192,6 +1202,35 @@ e_devicemgr_device_init(void)
 void
 e_devicemgr_device_fini(void)
 {
+   E_Comp_Wl_Input_Device *dev;
+   struct wl_resource *res;
+   e_devicemgr_input_device_user_data *device_user_data;
+   struct wl_listener *destroy_listener;
+   Eina_List *l, *l_next;
+   struct wl_client *client;
+
+   /* destroy the global seat resource */
+   if (e_comp_wl->input_device_manager.global)
+     wl_global_destroy(e_comp_wl->input_device_manager.global);
+   e_comp_wl->input_device_manager.global = NULL;
+
+   EINA_LIST_FREE(e_comp_wl->input_device_manager.device_list, dev)
+     {
+        if (dev->name) eina_stringshare_del(dev->name);
+        if (dev->identifier) eina_stringshare_del(dev->identifier);
+        EINA_LIST_FREE(dev->resources, res)
+          {
+             device_user_data = wl_resource_get_user_data(res);
+             device_user_data->dev = NULL;
+             device_user_data->dev_mgr_res = NULL;
+             E_FREE(device_user_data);
+
+             wl_resource_set_user_data(res, NULL);
+          }
+
+        free(dev);
+     }
+
    E_FREE_LIST(handlers, ecore_event_handler_del);
 
    /* deinitialization of cynara if it has been initialized */
@@ -1200,5 +1239,31 @@ e_devicemgr_device_fini(void)
    input_devmgr_data->cynara_initialized = EINA_FALSE;
 #endif
 
+   if (input_devmgr_data->block_client)
+     {
+        destroy_listener = wl_client_get_destroy_listener(input_devmgr_data->block_client,
+                                                          _e_input_devmgr_client_cb_destroy);
+        if (destroy_listener)
+          {
+             wl_list_remove(&destroy_listener->link);
+             E_FREE(destroy_listener);
+          }
+        input_devmgr_data->block_client = NULL;
+     }
+
+   EINA_LIST_FOREACH_SAFE(input_devmgr_data->inputgen.clients, l, l_next, client)
+     {
+        destroy_listener = wl_client_get_destroy_listener(input_devmgr_data->block_client,
+                                                          _e_input_devmgr_inputgen_client_cb_destroy);
+        if (destroy_listener)
+          {
+             wl_list_remove(&destroy_listener->link);
+             E_FREE(destroy_listener);
+          }
+        input_devmgr_data->inputgen.clients =
+           eina_list_remove(input_devmgr_data->inputgen.clients, client);
+     }
+
    eina_stringshare_del(input_devmgr_data->detent.identifier);
+   eina_stringshare_del(input_devmgr_data->inputgen.uinp_identifier);
 }

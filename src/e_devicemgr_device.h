@@ -65,6 +65,7 @@ struct _e_devicemgr_input_devmgr_data
       int uinp_fd;
       char *uinp_identifier;
       unsigned int ref;
+      Eina_List *clients;
    }inputgen;
 
    struct
