@@ -1112,7 +1112,7 @@ _e_video_check_if_pp_needed(E_Video *video)
    }
    if (!found)
      {
-        video->pp_tbmfmt = TBM_FORMAT_XRGB8888;
+        video->pp_tbmfmt = TBM_FORMAT_ARGB8888;
         return EINA_TRUE;
      }
 
