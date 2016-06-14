@@ -8,6 +8,7 @@
 #include <Ecore_Drm.h>
 #include <pixman.h>
 #include <png.h>
+#include <tdm_helper.h>
 #include "e_mod_main.h"
 #include "e_devicemgr_privates.h"
 #include "e_devicemgr_tdm.h"
@@ -159,6 +160,88 @@ _handle_to_bo(uint handle)
    return bo;
 }
 
+static Eina_Bool
+_e_devicemgr_buffer_access_data_begin(E_Devmgr_Buf *mbuf)
+{
+   EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, EINA_FALSE);
+
+   if (mbuf->type == TYPE_SHM)
+     {
+        struct wl_shm_buffer *shm_buffer = wl_shm_buffer_get(mbuf->resource);
+        EINA_SAFETY_ON_NULL_RETURN_VAL(shm_buffer, EINA_FALSE);
+        mbuf->ptrs[0] = wl_shm_buffer_get_data(shm_buffer);
+        return EINA_TRUE;
+     }
+   else if (mbuf->type == TYPE_TBM)
+     {
+        int i, j;
+        tbm_bo bos[4] = {0,};
+
+        for (i = 0; i < 3; i++)
+          {
+             tbm_bo_handle bo_handles;
+
+             bos[i] = tbm_surface_internal_get_bo(mbuf->tbm_surface, i);
+             if (!bos[i]) continue;
+
+             bo_handles = tbm_bo_map(bos[i], TBM_DEVICE_CPU, TBM_OPTION_READ);
+             if (!bo_handles.ptr)
+               {
+                  for (j = 0; j < i; j++)
+                    tbm_bo_unmap(bos[j]);
+                  return EINA_FALSE;
+               }
+
+             mbuf->ptrs[i] = bo_handles.ptr;
+          }
+
+        switch(mbuf->tbmfmt)
+          {
+           case TBM_FORMAT_YVU420:
+           case TBM_FORMAT_YUV420:
+             if (!mbuf->ptrs[1])
+                mbuf->ptrs[1] = mbuf->ptrs[0];
+             if (!mbuf->ptrs[2])
+                mbuf->ptrs[2] = mbuf->ptrs[1];
+             break;
+           case TBM_FORMAT_NV12:
+           case TBM_FORMAT_NV21:
+             if (!mbuf->ptrs[1])
+               mbuf->ptrs[1] = mbuf->ptrs[0];
+             break;
+           default:
+             break;
+          }
+     }
+
+   return EINA_TRUE;
+}
+
+static void
+_e_devicemgr_buffer_access_data_end(E_Devmgr_Buf *mbuf)
+{
+   EINA_SAFETY_ON_NULL_RETURN(mbuf);
+
+   if (mbuf->type == TYPE_SHM)
+     {
+        mbuf->ptrs[0] = NULL;
+     }
+   else if (mbuf->type == TYPE_TBM)
+     {
+        int i;
+        tbm_bo bos[4] = {0,};
+
+        for (i = 0; i < 3; i++)
+          {
+             bos[i] = tbm_surface_internal_get_bo(mbuf->tbm_surface, i);
+             if (!bos[i]) continue;
+
+             tbm_bo_unmap(bos[i]);
+             mbuf->ptrs[i] = NULL;
+          }
+     }
+}
+
 E_Devmgr_Buf*
 _e_devmgr_buffer_create(struct wl_resource *resource, const char *func)
 {
@@ -195,7 +278,6 @@ _e_devmgr_buffer_create(struct wl_resource *resource, const char *func)
         mbuf->width = wl_shm_buffer_get_width(shm_buffer);
         mbuf->height = wl_shm_buffer_get_height(shm_buffer);
         mbuf->pitches[0] = wl_shm_buffer_get_stride(shm_buffer);
-        mbuf->ptrs[0] = wl_shm_buffer_get_data(shm_buffer);
 
         if (IS_RGB(mbuf->tbmfmt))
           mbuf->width_from_pitch = mbuf->pitches[0]>>2;
@@ -225,8 +307,6 @@ _e_devmgr_buffer_create(struct wl_resource *resource, const char *func)
                   mbuf->handles[i] = tbm_bo_get_handle(bo, TBM_DEVICE_DEFAULT).u32;
                   EINA_SAFETY_ON_FALSE_GOTO(mbuf->handles[i] > 0, create_fail);
 
-                  mbuf->ptrs[i] = tbm_bo_get_handle(bo, TBM_DEVICE_CPU).ptr;
-
                   mbuf->names[i] = tbm_bo_export(bo);
                   EINA_SAFETY_ON_FALSE_GOTO(mbuf->names[i] > 0, create_fail);
                }
@@ -240,24 +320,6 @@ _e_devmgr_buffer_create(struct wl_resource *resource, const char *func)
           mbuf->width_from_pitch = mbuf->pitches[0]>>2;
         else
           mbuf->width_from_pitch = mbuf->pitches[0];
-
-        switch(mbuf->tbmfmt)
-          {
-           case TBM_FORMAT_YVU420:
-           case TBM_FORMAT_YUV420:
-             if (!mbuf->ptrs[1])
-                mbuf->ptrs[1] = mbuf->ptrs[0];
-             if (!mbuf->ptrs[2])
-                mbuf->ptrs[2] = mbuf->ptrs[1];
-             break;
-           case TBM_FORMAT_NV12:
-           case TBM_FORMAT_NV21:
-             if (!mbuf->ptrs[1])
-               mbuf->ptrs[1] = mbuf->ptrs[0];
-             break;
-           default:
-             break;
-          }
      }
    else
      {
@@ -267,13 +329,12 @@ _e_devmgr_buffer_create(struct wl_resource *resource, const char *func)
 
    mbuf_lists = eina_list_append(mbuf_lists, mbuf);
 
-   BDB("type(%d) %dx%d, %c%c%c%c, name(%d,%d,%d) hnd(%d,%d,%d), pitch(%d,%d,%d), offset(%d,%d,%d) ptr(%p,%p,%p): %s",
+   BDB("type(%d) %dx%d, %c%c%c%c, name(%d,%d,%d) hnd(%d,%d,%d), pitch(%d,%d,%d), offset(%d,%d,%d): %s",
        mbuf->type, mbuf->width, mbuf->height, FOURCC_STR(mbuf->tbmfmt),
        mbuf->names[0], mbuf->names[1], mbuf->names[2],
        mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
        mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
        mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2],
-       mbuf->ptrs[0], mbuf->ptrs[1], mbuf->ptrs[2],
        func);
 
    return mbuf;
@@ -320,8 +381,6 @@ _e_devmgr_buffer_create_tbm(tbm_surface_h tbm_surface, const char *func)
              mbuf->handles[i] = tbm_bo_get_handle(bo, TBM_DEVICE_DEFAULT).u32;
              EINA_SAFETY_ON_FALSE_GOTO(mbuf->handles[i] > 0, create_fail);
 
-             mbuf->ptrs[i] = tbm_bo_get_handle(bo, TBM_DEVICE_CPU).ptr;
-
              mbuf->names[i] = tbm_bo_export(bo);
              EINA_SAFETY_ON_FALSE_GOTO(mbuf->names[i] > 0, create_fail);
           }
@@ -336,33 +395,14 @@ _e_devmgr_buffer_create_tbm(tbm_surface_h tbm_surface, const char *func)
    else
      mbuf->width_from_pitch = mbuf->pitches[0];
 
-   switch(mbuf->tbmfmt)
-     {
-      case TBM_FORMAT_YVU420:
-      case TBM_FORMAT_YUV420:
-        if (!mbuf->ptrs[1])
-           mbuf->ptrs[1] = mbuf->ptrs[0];
-        if (!mbuf->ptrs[2])
-           mbuf->ptrs[2] = mbuf->ptrs[1];
-        break;
-      case TBM_FORMAT_NV12:
-      case TBM_FORMAT_NV21:
-        if (!mbuf->ptrs[1])
-          mbuf->ptrs[1] = mbuf->ptrs[0];
-        break;
-      default:
-        break;
-     }
-
    mbuf_lists = eina_list_append(mbuf_lists, mbuf);
 
-   BDB("type(%d) %dx%d, %c%c%c%c, name(%d,%d,%d) hnd(%d,%d,%d), pitch(%d,%d,%d), offset(%d,%d,%d) ptr(%p,%p,%p): %s",
+   BDB("type(%d) %dx%d, %c%c%c%c, name(%d,%d,%d) hnd(%d,%d,%d), pitch(%d,%d,%d), offset(%d,%d,%d): %s",
        mbuf->type, mbuf->width, mbuf->height, FOURCC_STR(mbuf->tbmfmt),
        mbuf->names[0], mbuf->names[1], mbuf->names[2],
        mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
        mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
        mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2],
-       mbuf->ptrs[0], mbuf->ptrs[1], mbuf->ptrs[2],
        func);
 
    return mbuf;
@@ -419,8 +459,6 @@ _e_devmgr_buffer_create_hnd(uint handle, int width, int height, int pitch, const
 
    mbuf->width_from_pitch = mbuf->pitches[0]>>2;
 
-   mbuf->ptrs[0] = tbm_bo_get_handle(bo, TBM_DEVICE_CPU).ptr;
-
    mbuf->names[0] = tbm_bo_export(bo);
    EINA_SAFETY_ON_FALSE_GOTO(mbuf->names[0] > 0, create_fail);
 
@@ -428,13 +466,12 @@ _e_devmgr_buffer_create_hnd(uint handle, int width, int height, int pitch, const
 
    mbuf_lists = eina_list_append(mbuf_lists, mbuf);
 
-   BDB("type(%d) %dx%d %c%c%c%c nm(%d,%d,%d) hnd(%d,%d,%d) pitch(%d,%d,%d) offset(%d,%d,%d) ptr(%p,%p,%p): %s",
+   BDB("type(%d) %dx%d %c%c%c%c nm(%d,%d,%d) hnd(%d,%d,%d) pitch(%d,%d,%d) offset(%d,%d,%d): %s",
        mbuf->type, mbuf->width, mbuf->height, FOURCC_STR(mbuf->tbmfmt),
        mbuf->names[0], mbuf->names[1], mbuf->names[2],
        mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
        mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
        mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2],
-       mbuf->ptrs[0], mbuf->ptrs[1], mbuf->ptrs[2],
        func);
 
    return mbuf;
@@ -506,38 +543,41 @@ _e_devmgr_buffer_alloc(int width, int height, tbm_format tbmfmt, Eina_Bool scano
    mbuf->names[0] = tbm_bo_export(bo);
    EINA_SAFETY_ON_FALSE_GOTO(mbuf->names[0] > 0, alloc_fail);
 
-   mbuf->ptrs[0] = tbm_bo_get_handle(bo, TBM_DEVICE_CPU).ptr;
-
    if (IS_RGB(mbuf->tbmfmt))
      mbuf->width_from_pitch = mbuf->pitches[0]>>2;
    else
      mbuf->width_from_pitch = mbuf->pitches[0];
 
-   switch(mbuf->tbmfmt)
-     {
-      case TBM_FORMAT_YVU420:
-      case TBM_FORMAT_YUV420:
-        mbuf->ptrs[2] = mbuf->ptrs[1] = mbuf->ptrs[0];
-        break;
-      case TBM_FORMAT_NV12:
-      case TBM_FORMAT_NV21:
-        mbuf->ptrs[1] = mbuf->ptrs[0];
-        break;
-      default:
-        break;
-     }
+static int j;
+mbuf->ptrs[0] = tbm_bo_map(bo, TBM_DEVICE_CPU, TBM_OPTION_READ|TBM_OPTION_WRITE).ptr;
+unsigned int *p = mbuf->ptrs[0];
+if (p)
+{
+   for (i = 0; i < size/4; i++)
+   {
+      if (j == 0)
+         p[i] = 0xFFFF0000;
+      else if (j == 1)
+         p[i] = 0xFF00FF00;
+      else if (j == 2)
+         p[i] = 0xFF0000FF;
+   }
+}
+j++;
+if (j > 2)
+   j = 0;
+tbm_bo_unmap(bo);
 
    tbm_bo_unref(bo);
 
    mbuf_lists = eina_list_append(mbuf_lists, mbuf);
 
-   BDB("type(%d) %dx%d %c%c%c%c nm(%d,%d,%d) hnd(%d,%d,%d) pitch(%d,%d,%d) offset(%d,%d,%d) ptr(%p,%p,%p): %s",
+   BDB("type(%d) %dx%d %c%c%c%c nm(%d,%d,%d) hnd(%d,%d,%d) pitch(%d,%d,%d) offset(%d,%d,%d): %s",
        mbuf->type, mbuf->width, mbuf->height, FOURCC_STR(mbuf->tbmfmt),
        mbuf->names[0], mbuf->names[1], mbuf->names[2],
        mbuf->handles[0], mbuf->handles[1], mbuf->handles[2],
        mbuf->pitches[0], mbuf->pitches[1], mbuf->pitches[2],
        mbuf->offsets[0], mbuf->offsets[1], mbuf->offsets[2],
-       mbuf->ptrs[0], mbuf->ptrs[1], mbuf->ptrs[2],
        func);
 
    return mbuf;
@@ -624,8 +664,15 @@ e_devmgr_buffer_clear(E_Devmgr_Buf *mbuf)
 {
    EINA_SAFETY_ON_NULL_RETURN(mbuf);
 
+   if (!_e_devicemgr_buffer_access_data_begin(mbuf))
+     {
+        BER("can't access ptr");
+        return;
+     }
+
    if (!mbuf->ptrs[0])
      {
+        _e_devicemgr_buffer_access_data_end(mbuf);
         BDB("no ptrs");
         return;
      }
@@ -667,8 +714,10 @@ e_devmgr_buffer_clear(E_Devmgr_Buf *mbuf)
         break;
       default:
         BWR("can't clear %c%c%c%c buffer", FOURCC_STR(mbuf->tbmfmt));
-        return;
+        break;
      }
+
+   _e_devicemgr_buffer_access_data_end(mbuf);
 }
 
 Eina_Bool
@@ -1048,9 +1097,17 @@ e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *prefix, int nth, Eina_Bool 
    const char *dir = "/tmp/dump";
 
    if (!mbuf) return;
+
+   if (!_e_devicemgr_buffer_access_data_begin(mbuf))
+     {
+        BER("can't access ptr");
+        return;
+     }
+
    if (!mbuf->ptrs[0])
      {
-        BDB("no ptrs");
+        _e_devicemgr_buffer_access_data_end(mbuf);
+        BER("no ptrs");
         return;
      }
 
@@ -1061,6 +1118,8 @@ e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *prefix, int nth, Eina_Bool 
    else
      snprintf(path, sizeof(path), "%s/%s_%c%c%c%c_%dx%d_%03d.yuv", dir, prefix,
               FOURCC_STR(mbuf->tbmfmt), mbuf->pitches[0], mbuf->height, nth);
+
+   BDB("dump %s", path);
 
    switch(mbuf->tbmfmt)
      {
@@ -1094,10 +1153,10 @@ e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *prefix, int nth, Eina_Bool 
         break;
       default:
         BWR("can't clear %c%c%c%c buffer", FOURCC_STR(mbuf->tbmfmt));
-        return;
+        break;
      }
 
-   BDB("dump %s", path);
+   _e_devicemgr_buffer_access_data_end(mbuf);
 }
 
 uint
