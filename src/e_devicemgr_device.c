@@ -261,13 +261,13 @@ _e_devicemgr_add_device(const char *name, const char *identifier, const char *se
    e_comp_wl->input_device_manager.device_list = eina_list_append(e_comp_wl->input_device_manager.device_list, dev);
 
    if ((!input_devmgr_data->inputgen.uinp_identifier) &&
-       (!strncmp(dev->name, "Input Generator", sizeof("Input Generator"))))
+       (dev->name && !strncmp(dev->name, "Input Generator", sizeof("Input Generator"))))
      {
         input_devmgr_data->inputgen.uinp_identifier = (char *)eina_stringshare_add(identifier);
      }
 
    if ((!input_devmgr_data->detent.identifier) &&
-       (!strncmp(dev->name, "tizen_detent", sizeof("tizen_detent"))))
+       (dev->name && !strncmp(dev->name, "tizen_detent", sizeof("tizen_detent"))))
      {
         input_devmgr_data->detent.identifier = (char *)eina_stringshare_add(identifier);
         dev_list = (Eina_List *)ecore_drm_devices_get();
@@ -1221,9 +1221,12 @@ e_devicemgr_device_fini(void)
         EINA_LIST_FREE(dev->resources, res)
           {
              device_user_data = wl_resource_get_user_data(res);
-             device_user_data->dev = NULL;
-             device_user_data->dev_mgr_res = NULL;
-             E_FREE(device_user_data);
+             if (device_user_data)
+               {
+                  device_user_data->dev = NULL;
+                  device_user_data->dev_mgr_res = NULL;
+                  E_FREE(device_user_data);
+               }
 
              wl_resource_set_user_data(res, NULL);
           }
