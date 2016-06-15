@@ -44,81 +44,6 @@ static void _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func);
 
 static Eina_List *mbuf_lists;
 
-static int
-_e_devmgr_buf_image_attr(tbm_format tbmfmt, int w, int h, uint *pitches, uint *offsets, uint *lengths, uint *num_plane)
-{
-   int size = 0, tmp = 0;
-
-   if (offsets) offsets[0] = 0;
-   switch (tbmfmt)
-     {
-      case TBM_FORMAT_ARGB8888:
-      case TBM_FORMAT_XRGB8888:
-        if (num_plane) *num_plane = 1;
-        size += (w << 2);
-        if (pitches) pitches[0] = size;
-        size *= h;
-        if (lengths) lengths[0] = size;
-        break;
-      /* YUV422, packed */
-      case TBM_FORMAT_YUV422:
-      case TBM_FORMAT_YVU422:
-        if (num_plane) *num_plane = 1;
-        size = w << 1;
-        if (pitches) pitches[0] = size;
-        size *= h;
-        if (lengths) lengths[0] = size;
-        break;
-      /* YUV420, 3 planar */
-      case TBM_FORMAT_YUV420:
-      case TBM_FORMAT_YVU420:
-        if (num_plane) *num_plane = 3;
-        size = ROUNDUP(w, 2);
-        if (pitches) pitches[0] = size;
-        size *= h;
-        if (lengths) lengths[0] = size;
-        if (offsets) offsets[1] = size;
-        tmp = ROUNDUP((w >> 1), 2);
-        if (pitches) pitches[1] = pitches[2] = tmp;
-        tmp *= (h >> 1);
-        size += tmp;
-        if (lengths) lengths[1] = tmp;
-        if (offsets) offsets[2] = size;
-        size += tmp;
-        if (lengths) lengths[2] = tmp;
-        break;
-      /* YUV420, 2 planar */
-      case TBM_FORMAT_NV12:
-      case TBM_FORMAT_NV21:
-        if (num_plane) *num_plane = 2;
-        if (pitches) pitches[0] = w;
-        size = w * h;
-        if (lengths) lengths[0] = size;
-        if (offsets) offsets[1] = size;
-        if (pitches) pitches[1] = w;
-        tmp = (w) * (h >> 1);
-        size += tmp;
-        if (lengths) lengths[1] = tmp;
-        break;
-      /* YUV420, 2 planar, tiled */
-      case TBM_FORMAT_NV12MT:
-        if (num_plane) *num_plane = 2;
-        if (pitches) pitches[0] = w;
-        size = ALIGN_TO_8KB(ALIGN_TO_128B(w) * ALIGN_TO_32B(h));
-        if (lengths) lengths[0] = size;
-        if (offsets) offsets[1] = size;
-        if (pitches) pitches[1] = w;
-        tmp = ALIGN_TO_8KB(ALIGN_TO_128B(w) * ALIGN_TO_32B(h >> 1));
-        size += tmp;
-        if (lengths) lengths[1] = tmp;
-        break;
-      default:
-        return 0;
-     }
-
-   return size;
-}
-
 static E_Devmgr_Buf*
 _find_mbuf(uint stamp)
 {
@@ -487,11 +412,7 @@ E_Devmgr_Buf*
 _e_devmgr_buffer_alloc(int width, int height, tbm_format tbmfmt, Eina_Bool scanout, const char *func)
 {
    E_Devmgr_Buf *mbuf = NULL;
-   tbm_surface_h tbm_surface;
-   tbm_surface_info_s info = {0,};
-   tbm_bo bo = NULL;
-   uint length[4] = {0,}, num_plane;
-   int size;
+   tbm_surface_h tbm_surface = NULL;
    int i;
 
    EINA_SAFETY_ON_FALSE_RETURN_VAL(width > 0, NULL);
@@ -506,69 +427,46 @@ _e_devmgr_buffer_alloc(int width, int height, tbm_format tbmfmt, Eina_Bool scano
      mbuf->stamp++;
    mbuf->func = strdup(func);
 
-   size = _e_devmgr_buf_image_attr(tbmfmt, width, height,
-                                   mbuf->pitches, mbuf->offsets, length, &num_plane);
-   EINA_SAFETY_ON_FALSE_GOTO(size > 0, alloc_fail);
-
    if (scanout)
-     bo = tbm_bo_alloc(e_devmgr_dpy->bufmgr, size, TBM_BO_SCANOUT);
+     tbm_surface = tbm_surface_internal_create_with_flags(width, height, tbmfmt, TBM_BO_SCANOUT);
    else
-     bo = tbm_bo_alloc(e_devmgr_dpy->bufmgr, size, TBM_BO_DEFAULT);
-   EINA_SAFETY_ON_NULL_GOTO(bo, alloc_fail);
-
-   info.width = width;
-   info.height = height;
-   info.format = tbmfmt;
-   info.bpp = tbm_surface_internal_get_bpp(info.format);
-   info.num_planes = num_plane;
-   for (i = 0; i < num_plane; i++)
-     {
-        info.planes[i].offset = mbuf->offsets[i];
-        info.planes[i].stride = mbuf->pitches[i];
-     }
-
-   tbm_surface = tbm_surface_internal_create_with_bos(&info, &bo, 1);
+     tbm_surface = tbm_surface_internal_create_with_flags(width, height, tbmfmt, TBM_BO_DEFAULT);
    EINA_SAFETY_ON_NULL_GOTO(tbm_surface, alloc_fail);
 
    mbuf->type = TYPE_TBM;
    mbuf->tbm_surface = tbm_surface;
+   tbm_surface_internal_ref(tbm_surface);
 
-   mbuf->tbmfmt = info.format;
-   mbuf->width = info.width;
-   mbuf->height = info.height;
+   mbuf->tbmfmt = tbmfmt;
+   mbuf->width = width;
+   mbuf->height = height;
 
-   mbuf->handles[0] = tbm_bo_get_handle(bo, TBM_DEVICE_DEFAULT).u32;
-   EINA_SAFETY_ON_FALSE_GOTO(mbuf->handles[0] > 0, alloc_fail);
+   for (i = 0; i < 3; i++)
+     {
+        uint32_t size = 0, offset = 0, pitch = 0;
+        tbm_bo bo;
 
-   mbuf->names[0] = tbm_bo_export(bo);
-   EINA_SAFETY_ON_FALSE_GOTO(mbuf->names[0] > 0, alloc_fail);
+        bo = tbm_surface_internal_get_bo(tbm_surface, i);
+        if (bo)
+          {
+             mbuf->handles[i] = tbm_bo_get_handle(bo, TBM_DEVICE_DEFAULT).u32;
+             EINA_SAFETY_ON_FALSE_GOTO(mbuf->handles[i] > 0, alloc_fail);
+
+             mbuf->names[i] = tbm_bo_export(bo);
+             EINA_SAFETY_ON_FALSE_GOTO(mbuf->names[i] > 0, alloc_fail);
+          }
+
+        tbm_surface_internal_get_plane_data(tbm_surface, i, &size, &offset, &pitch);
+        mbuf->pitches[i] = pitch;
+        mbuf->offsets[i] = offset;
+     }
 
    if (IS_RGB(mbuf->tbmfmt))
      mbuf->width_from_pitch = mbuf->pitches[0]>>2;
    else
      mbuf->width_from_pitch = mbuf->pitches[0];
 
-static int j;
-mbuf->ptrs[0] = tbm_bo_map(bo, TBM_DEVICE_CPU, TBM_OPTION_READ|TBM_OPTION_WRITE).ptr;
-unsigned int *p = mbuf->ptrs[0];
-if (p)
-{
-   for (i = 0; i < size/4; i++)
-   {
-      if (j == 0)
-         p[i] = 0xFFFF0000;
-      else if (j == 1)
-         p[i] = 0xFF00FF00;
-      else if (j == 2)
-         p[i] = 0xFF0000FF;
-   }
-}
-j++;
-if (j > 2)
-   j = 0;
-tbm_bo_unmap(bo);
-
-   tbm_bo_unref(bo);
+   tbm_surface_internal_unref(tbm_surface);
 
    mbuf_lists = eina_list_append(mbuf_lists, mbuf);
 
@@ -583,8 +481,8 @@ tbm_bo_unmap(bo);
    return mbuf;
 
 alloc_fail:
-   if (bo)
-     tbm_bo_unref(bo);
+   if (tbm_surface)
+     tbm_surface_internal_unref(tbm_surface);
    e_devmgr_buffer_free(mbuf);
    return NULL;
 }
@@ -644,8 +542,11 @@ _e_devmgr_buffer_free(E_Devmgr_Buf *mbuf, const char *func)
    /* make sure all operation is done */
    MBUF_RETURN_IF_FAIL(mbuf->showing == EINA_FALSE);
 
-   if (mbuf->type == TYPE_TBM)
-     tbm_surface_internal_unref(mbuf->tbm_surface);
+   if (mbuf->type == TYPE_TBM && mbuf->tbm_surface)
+     {
+        tbm_surface_internal_unref(mbuf->tbm_surface);
+        mbuf->tbm_surface = NULL;
+     }
 
    mbuf_lists = eina_list_remove(mbuf_lists, mbuf);
 
