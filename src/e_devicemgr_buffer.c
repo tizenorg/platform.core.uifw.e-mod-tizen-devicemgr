@@ -90,11 +90,14 @@ _e_devicemgr_buffer_access_data_begin(E_Devmgr_Buf *mbuf)
 {
    EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf, EINA_FALSE);
 
+   mbuf->ptrs[0] = mbuf->ptrs[1] = mbuf->ptrs[2] = NULL;
+
    if (mbuf->type == TYPE_SHM)
      {
         struct wl_shm_buffer *shm_buffer = wl_shm_buffer_get(mbuf->resource);
         EINA_SAFETY_ON_NULL_RETURN_VAL(shm_buffer, EINA_FALSE);
         mbuf->ptrs[0] = wl_shm_buffer_get_data(shm_buffer);
+        EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf->ptrs[0], EINA_FALSE);
         return EINA_TRUE;
      }
    else if (mbuf->type == TYPE_TBM)
@@ -120,6 +123,8 @@ _e_devicemgr_buffer_access_data_begin(E_Devmgr_Buf *mbuf)
              mbuf->ptrs[i] = bo_handles.ptr;
           }
 
+        EINA_SAFETY_ON_NULL_RETURN_VAL(mbuf->ptrs[0], EINA_FALSE);
+
         switch(mbuf->tbmfmt)
           {
            case TBM_FORMAT_YVU420:
@@ -137,9 +142,11 @@ _e_devicemgr_buffer_access_data_begin(E_Devmgr_Buf *mbuf)
            default:
              break;
           }
+
+        return EINA_TRUE;
      }
 
-   return EINA_TRUE;
+   return EINA_FALSE;
 }
 
 static void
