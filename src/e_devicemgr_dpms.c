@@ -65,8 +65,6 @@ _e_devicemgr_dpms_set_cb(const Eldbus_Service_Interface *iface, const Eldbus_Mes
                dpms_output = output;
                dpms_value = uint32;
                ecore_drm_output_dpms_set(output, uint32);
-               ecore_evas_manual_render_set(e_comp->ee,
-                                            (uint32 > 0) ? EINA_TRUE : EINA_FALSE);
             }
 
         result = uint32;
