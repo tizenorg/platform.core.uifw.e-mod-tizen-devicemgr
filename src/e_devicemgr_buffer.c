@@ -578,13 +578,6 @@ e_devmgr_buffer_clear(E_Devmgr_Buf *mbuf)
         return;
      }
 
-   if (!mbuf->ptrs[0])
-     {
-        _e_devicemgr_buffer_access_data_end(mbuf);
-        BDB("no ptrs");
-        return;
-     }
-
    switch(mbuf->tbmfmt)
      {
       case TBM_FORMAT_ARGB8888:
@@ -730,6 +723,17 @@ e_devmgr_buffer_convert(E_Devmgr_Buf *srcbuf, E_Devmgr_Buf *dstbuf,
    int src_stride, dst_stride;
    int buf_width;
 
+   EINA_SAFETY_ON_FALSE_RETURN(MBUF_IS_VALID(srcbuf));
+   EINA_SAFETY_ON_FALSE_RETURN(MBUF_IS_VALID(dstbuf));
+
+   if (!_e_devicemgr_buffer_access_data_begin(srcbuf))
+     return;
+   if (!_e_devicemgr_buffer_access_data_begin(dstbuf))
+     {
+        _e_devicemgr_buffer_access_data_end(srcbuf);
+        return;
+     }
+
    /* not handle buffers which have 2 more gem handles */
    EINA_SAFETY_ON_NULL_GOTO(srcbuf->ptrs[0], cant_convert);
    EINA_SAFETY_ON_NULL_GOTO(dstbuf->ptrs[0], cant_convert);
@@ -811,6 +815,9 @@ e_devmgr_buffer_convert(E_Devmgr_Buf *srcbuf, E_Devmgr_Buf *dstbuf,
 cant_convert:
    if (src_img) pixman_image_unref(src_img);
    if (dst_img) pixman_image_unref(dst_img);
+
+   _e_devicemgr_buffer_access_data_end(srcbuf);
+   _e_devicemgr_buffer_access_data_end(dstbuf);
 }
 
 Eina_Bool
@@ -818,6 +825,17 @@ e_devmgr_buffer_copy(E_Devmgr_Buf *srcbuf, E_Devmgr_Buf *dstbuf)
 {
    int i, j, c_height;
    unsigned char *s, *d;
+
+   EINA_SAFETY_ON_FALSE_RETURN_VAL(MBUF_IS_VALID(srcbuf), EINA_FALSE);
+   EINA_SAFETY_ON_FALSE_RETURN_VAL(MBUF_IS_VALID(dstbuf), EINA_FALSE);
+
+   if (!_e_devicemgr_buffer_access_data_begin(srcbuf))
+     return EINA_FALSE;
+   if (!_e_devicemgr_buffer_access_data_begin(dstbuf))
+     {
+        _e_devicemgr_buffer_access_data_end(srcbuf);
+        return EINA_FALSE;
+     }
 
    switch (srcbuf->tbmfmt)
      {
@@ -866,8 +884,14 @@ e_devmgr_buffer_copy(E_Devmgr_Buf *srcbuf, E_Devmgr_Buf *dstbuf)
         break;
       default:
         ERR("not implemented for %c%c%c%c", FOURCC_STR(srcbuf->tbmfmt));
+        _e_devicemgr_buffer_access_data_end(srcbuf);
+        _e_devicemgr_buffer_access_data_end(dstbuf);
+
         return EINA_FALSE;
      }
+
+   _e_devicemgr_buffer_access_data_end(srcbuf);
+   _e_devicemgr_buffer_access_data_end(dstbuf);
 
    return EINA_TRUE;
 }
@@ -1009,13 +1033,6 @@ e_devmgr_buffer_dump(E_Devmgr_Buf *mbuf, const char *prefix, int nth, Eina_Bool 
    if (!_e_devicemgr_buffer_access_data_begin(mbuf))
      {
         BER("can't access ptr");
-        return;
-     }
-
-   if (!mbuf->ptrs[0])
-     {
-        _e_devicemgr_buffer_access_data_end(mbuf);
-        BER("no ptrs");
         return;
      }
 
