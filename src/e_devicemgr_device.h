@@ -58,6 +58,7 @@ struct _e_devicemgr_input_devmgr_data
 #endif
 
    unsigned int pressed_button;
+   unsigned int pressed_finger;
 
    struct
    {

@@ -335,36 +335,114 @@ _cb_device_del(void *data EINA_UNUSED, int type EINA_UNUSED, void *event)
    return ECORE_CALLBACK_PASS_ON;
 }
 
-Eina_Bool
-e_devicemgr_block_check_pointer(int type, void *event)
+static Eina_Bool
+_e_devicemgr_block_check_button(int type, void *event)
 {
    Ecore_Event_Mouse_Button *ev;
+   Ecore_Device *dev;
 
    ev = event;
    EINA_SAFETY_ON_NULL_RETURN_VAL(ev, ECORE_CALLBACK_PASS_ON);
+   dev = ev->dev;
+   EINA_SAFETY_ON_NULL_RETURN_VAL(dev, ECORE_CALLBACK_PASS_ON);
 
-   if ((input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLAS_MOUSE) ||
-       (input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLAS_TOUCHSCREEN))
+   if (ecore_device_class_get(dev) == ECORE_DEVICE_CLASS_MOUSE)
      {
-        if (type == ECORE_EVENT_MOUSE_BUTTON_UP &&
-            (input_devmgr_data->pressed_button & (1 << ev->buttons)))
+        if (input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLAS_MOUSE)
+          {
+             if (type == ECORE_EVENT_MOUSE_BUTTON_UP)
+               {
+                  if (input_devmgr_data->pressed_button & (1 << ev->buttons))
+                    {
+                       input_devmgr_data->pressed_button &= ~(1 << ev->buttons);
+                       return ECORE_CALLBACK_PASS_ON;
+                    }
+               }
+             return ECORE_CALLBACK_DONE;
+          }
+
+        if (type == ECORE_EVENT_MOUSE_BUTTON_DOWN)
+          {
+             input_devmgr_data->pressed_button |= (1 << ev->buttons);
+          }
+        else if (type == ECORE_EVENT_MOUSE_BUTTON_UP)
           {
              input_devmgr_data->pressed_button &= ~(1 << ev->buttons);
-             return ECORE_CALLBACK_PASS_ON;
           }
-           return ECORE_CALLBACK_DONE;
      }
+   else if (ecore_device_class_get(dev) == ECORE_DEVICE_CLASS_TOUCH)
+     {
+        if (input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLAS_TOUCHSCREEN)
+          {
+             if (type == ECORE_EVENT_MOUSE_BUTTON_UP)
+               {
+                  if (input_devmgr_data->pressed_finger & (1 << ev->multi.device))
+                    {
+                       input_devmgr_data->pressed_finger &= ~(1 << ev->multi.device);
+                       return ECORE_CALLBACK_PASS_ON;
+                    }
+               }
+             return ECORE_CALLBACK_DONE;
+          }
 
-   if (type == ECORE_EVENT_MOUSE_BUTTON_DOWN)
-     {
-        input_devmgr_data->pressed_button |= (1 << ev->buttons);
-     }
-   else if(type == ECORE_EVENT_MOUSE_BUTTON_UP)
-     {
-        input_devmgr_data->pressed_button &= ~(1 << ev->buttons);
+        if (type == ECORE_EVENT_MOUSE_BUTTON_DOWN)
+          {
+             input_devmgr_data->pressed_finger |= (1 << ev->multi.device);
+          }
+        else if (type == ECORE_EVENT_MOUSE_BUTTON_UP)
+          {
+             input_devmgr_data->pressed_finger &= ~(1 << ev->multi.device);
+          }
      }
 
    return ECORE_CALLBACK_PASS_ON;
+}
+
+static Eina_Bool
+_e_devicemgr_block_check_move(int type, void *event)
+{
+   Ecore_Event_Mouse_Move *ev;
+   Ecore_Device *dev;
+
+   ev = event;
+   EINA_SAFETY_ON_NULL_RETURN_VAL(ev, ECORE_CALLBACK_PASS_ON);
+   dev = ev->dev;
+   EINA_SAFETY_ON_NULL_RETURN_VAL(dev, ECORE_CALLBACK_PASS_ON);
+
+   if (ecore_device_class_get(dev) == ECORE_DEVICE_CLASS_MOUSE)
+     {
+        if (input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLAS_MOUSE)
+          {
+             return ECORE_CALLBACK_DONE;
+          }
+     }
+   else if (ecore_device_class_get(dev) == ECORE_DEVICE_CLASS_TOUCH)
+     {
+        if (input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLAS_TOUCHSCREEN)
+          {
+             return ECORE_CALLBACK_DONE;
+          }
+     }
+
+   return ECORE_CALLBACK_PASS_ON;
+}
+
+Eina_Bool
+e_devicemgr_block_check_pointer(int type, void *event)
+{
+   Eina_Bool res = ECORE_CALLBACK_PASS_ON;
+
+   if (type == ECORE_EVENT_MOUSE_BUTTON_DOWN ||
+       type == ECORE_EVENT_MOUSE_BUTTON_UP)
+     {
+        res = _e_devicemgr_block_check_button(type, event);
+     }
+   else if (type == ECORE_EVENT_MOUSE_MOVE)
+     {
+        res = _e_devicemgr_block_check_move(type, event);
+     }
+
+   return res;
 }
 
 Eina_Bool
