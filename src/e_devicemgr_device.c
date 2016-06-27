@@ -1334,7 +1334,7 @@ e_devicemgr_device_fini(void)
 
    EINA_LIST_FOREACH_SAFE(input_devmgr_data->inputgen.clients, l, l_next, client)
      {
-        destroy_listener = wl_client_get_destroy_listener(input_devmgr_data->block_client,
+        destroy_listener = wl_client_get_destroy_listener(client,
                                                           _e_input_devmgr_inputgen_client_cb_destroy);
         if (destroy_listener)
           {
