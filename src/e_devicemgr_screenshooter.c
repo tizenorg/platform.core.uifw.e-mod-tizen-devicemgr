@@ -130,6 +130,8 @@ _e_tz_screenmirror_cb_timeout(void *data)
 {
    E_Mirror *mirror = data;
 
+   if (!mirror) return ECORE_CALLBACK_RENEW;
+
    _e_tz_screenmirror_vblank_handler((void*)mirror);
 
    return ECORE_CALLBACK_RENEW;
@@ -185,6 +187,8 @@ static void
 _e_tz_screenmirror_ui_buffer_cb_free(E_Devmgr_Buf *mbuf, void *data)
 {
    E_Mirror *mirror = (E_Mirror*)data;
+
+   EINA_SAFETY_ON_NULL_RETURN(mirror);
    mirror->ui_buffer_list = eina_list_remove(mirror->ui_buffer_list, mbuf);
 }
 
@@ -451,6 +455,7 @@ _e_tz_screenmirror_buffer_dequeue(E_Mirror_Buffer *buffer)
 {
    E_Mirror *mirror = buffer->mirror;
 
+   EINA_SAFETY_ON_NULL_RETURN(mirror);
    if (!mirror->buffer_queue || !eina_list_data_find_list(mirror->buffer_queue, buffer))
      return;
 
@@ -525,6 +530,8 @@ _e_tz_screenmirror_vblank_handler(void *data)
    E_Mirror *mirror = data;
    E_Mirror_Buffer *buffer;
    Eina_List *l;
+
+   EINA_SAFETY_ON_NULL_RETURN(mirror);
 
    mirror->wait_vblank = EINA_FALSE;
 
@@ -708,6 +715,7 @@ _e_tz_screenmirror_cb_set_stretch(struct wl_client *client EINA_UNUSED, struct w
 {
    E_Mirror *mirror = wl_resource_get_user_data(resource);
 
+   EINA_SAFETY_ON_NULL_RETURN(mirror);
    if (mirror->stretch == stretch)
      return;
 
@@ -719,6 +727,8 @@ _e_tz_screenmirror_cb_queue(struct wl_client *client EINA_UNUSED, struct wl_reso
 {
    E_Mirror *mirror = wl_resource_get_user_data(resource);
    E_Mirror_Buffer *buffer;
+
+   EINA_SAFETY_ON_NULL_RETURN(mirror);
 
    if (!_e_tz_screenmirror_buffer_check(buffer_resource))
      {
@@ -743,6 +753,8 @@ _e_tz_screenmirror_cb_dequeue(struct wl_client *client EINA_UNUSED, struct wl_re
    E_Mirror *mirror = wl_resource_get_user_data(resource);
    E_Mirror_Buffer *buffer;
 
+   EINA_SAFETY_ON_NULL_RETURN(mirror);
+
    if (!_e_tz_screenmirror_buffer_check(buffer_resource))
      {
         wl_resource_post_error(resource, WL_DISPLAY_ERROR_INVALID_OBJECT,
@@ -762,6 +774,7 @@ _e_tz_screenmirror_cb_start(struct wl_client *client EINA_UNUSED, struct wl_reso
 {
    E_Mirror *mirror = wl_resource_get_user_data(resource);
 
+   EINA_SAFETY_ON_NULL_RETURN(mirror);
    if (mirror->started) return;
 
    mirror->started = EINA_TRUE;
@@ -777,6 +790,7 @@ _e_tz_screenmirror_cb_stop(struct wl_client *client EINA_UNUSED, struct wl_resou
 {
    E_Mirror *mirror = wl_resource_get_user_data(resource);
 
+   EINA_SAFETY_ON_NULL_RETURN(mirror);
    if (!mirror->started) return;
 
    mirror->started = EINA_FALSE;
