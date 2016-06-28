@@ -116,24 +116,23 @@ _e_devicemgr_dpms_name_request_cb(void *data, const Eldbus_Message *msg, Eldbus_
      }
 }
 
-int
-e_devicemgr_dpms_init(void)
+static Eina_Bool
+_e_devicemgr_dpms_dbus_init(void *data)
 {
-   if (eldbus_init() == 0) return 0;
+   if (conn)
+      return ECORE_CALLBACK_CANCEL;
 
-   if (e_config->sleep_for_dri)
+   if (!conn)
+     conn = eldbus_connection_get(ELDBUS_CONNECTION_TYPE_SYSTEM);
+
+   if (!conn)
      {
-        /* TODO: need sleep_for_dbus? */
-        while (access("/tmp/dbus_launch", F_OK) != 0)
-          usleep(50000);
-        SLOGI("dbus_launch ready");
+        ERR("eldbus_connection_get fail..");
+        ecore_timer_add(1.0, _e_devicemgr_dpms_dbus_init, NULL);
+        return ECORE_CALLBACK_CANCEL;
      }
 
-   conn = eldbus_connection_get(ELDBUS_CONNECTION_TYPE_SYSTEM);
-   if(!conn)
-     SLOGI("eldbus_connection_get fail..");
-
-   EINA_SAFETY_ON_NULL_GOTO(conn, failed);
+   INF("eldbus_connection_get success..");
 
    iface = eldbus_service_interface_register(conn, PATH, &iface_desc);
    EINA_SAFETY_ON_NULL_GOTO(iface, failed);
@@ -141,12 +140,26 @@ e_devicemgr_dpms_init(void)
    eldbus_name_request(conn, BUS, ELDBUS_NAME_REQUEST_FLAG_DO_NOT_QUEUE,
                       _e_devicemgr_dpms_name_request_cb, NULL);
 
-   return 1;
-
+   return ECORE_CALLBACK_CANCEL;
 failed:
-   e_devicemgr_dpms_fini();
+   if (conn)
+     {
+        eldbus_name_release(conn, BUS, NULL, NULL);
+        eldbus_connection_unref(conn);
+        conn = NULL;
+     }
 
-   return 0;
+   return ECORE_CALLBACK_CANCEL;
+}
+
+int
+e_devicemgr_dpms_init(void)
+{
+   if (eldbus_init() == 0) return 0;
+
+   _e_devicemgr_dpms_dbus_init(NULL);
+
+   return 1;
 }
 
 void
