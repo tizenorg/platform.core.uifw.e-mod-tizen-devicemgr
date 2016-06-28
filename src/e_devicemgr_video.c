@@ -785,6 +785,7 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
    if (!vfb)
      {
         tdm_layer_unset_buffer(video->layer);
+        tdm_output_commit(video->output, 0, _e_video_commit_handler, video);
         return EINA_TRUE;
      }
 
