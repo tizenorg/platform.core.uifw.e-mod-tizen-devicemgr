@@ -785,6 +785,7 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
    if (!vfb)
      {
         tdm_layer_unset_buffer(video->layer);
+        tdm_output_commit(video->output, 0, NULL, NULL);
         return EINA_TRUE;
      }
 
@@ -852,6 +853,7 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
    return EINA_TRUE;
 show_fail:
    tdm_layer_unset_buffer(video->layer);
+   tdm_output_commit(video->output, 0, NULL, NULL);
    return EINA_FALSE;
 }
 
