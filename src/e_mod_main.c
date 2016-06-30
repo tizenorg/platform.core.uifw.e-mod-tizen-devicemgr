@@ -91,6 +91,12 @@ e_modapi_init(E_Module *m)
      }
 
    const char *engine_name = ecore_evas_engine_name_get(e_comp->ee);
+   if (!engine_name)
+     {
+        SLOG(LOG_DEBUG, "DEVICEMGR", "[e_devicemgr][%s] Failed @ ecore_evas_engine_name_get()..!\n", __FUNCTION__);
+        return NULL;
+     }
+
    if (!strncmp(engine_name, "drm", 3) || !strncmp(engine_name, "gl_drm", 6))
      if (!e_devicemgr_screenshooter_init())
        {
