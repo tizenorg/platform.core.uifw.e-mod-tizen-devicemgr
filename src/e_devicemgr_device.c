@@ -164,6 +164,9 @@ _e_devicemgr_del_device(const char *name, const char *identifier, const char *se
 
    e_comp_wl->input_device_manager.device_list = eina_list_remove(e_comp_wl->input_device_manager.device_list, dev);
 
+   if (e_comp_wl->input_device_manager.last_device_ptr == dev)
+     e_comp_wl->input_device_manager.last_device_ptr = NULL;
+
    free(dev);
    TRACE_INPUT_END();
 }
@@ -289,6 +292,9 @@ _e_devicemgr_add_device(const char *name, const char *identifier, const char *se
                }
           }
      }
+
+   if (dev->clas == ECORE_DEVICE_CLASS_MOUSE)
+     e_comp_wl->input_device_manager.last_device_ptr = dev;
 
    TRACE_INPUT_END();
 }
