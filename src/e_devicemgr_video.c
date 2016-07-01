@@ -6,6 +6,8 @@
 
 //#define DUMP_BUFFER
 
+static int _video_detail_log_dom = -1;
+
 #define BUFFER_MAX_COUNT   3
 #define MIN_WIDTH   32
 
@@ -13,6 +15,9 @@
 #define VWR(fmt,arg...)   WRN("window(0x%08"PRIxPTR"): "fmt, video->window, ##arg)
 #define VIN(fmt,arg...)   INF("window(0x%08"PRIxPTR"): "fmt, video->window, ##arg)
 #define VDB(fmt,arg...)   DBG("window(0x%08"PRIxPTR"): "fmt, video->window, ##arg)
+
+#define DET(...)          EINA_LOG_DOM_DBG(_video_detail_log_dom, __VA_ARGS__)
+#define VDT(fmt,arg...)   DET("window(0x%08"PRIxPTR"): "fmt, video->window, ##arg)
 
 typedef struct _E_Video_Fb
 {
@@ -171,6 +176,7 @@ _e_video_input_buffer_cb_free(E_Devmgr_Buf *mbuf, void *data)
    E_Video_Fb *vfb;
    Eina_List *l, *ll;
 
+   VDT("Buffer(%p) to be free, refcnt(%d)", mbuf, mbuf->ref_cnt);
    EINA_SAFETY_ON_NULL_RETURN(mbuf->comp_buffer);
 
    video->input_buffer_list = eina_list_remove(video->input_buffer_list, mbuf);
@@ -245,6 +251,11 @@ _e_video_input_buffer_get(E_Video *video, E_Comp_Wl_Buffer *comp_buffer, Eina_Bo
 
    video->input_buffer_list = eina_list_append(video->input_buffer_list, mbuf);
    e_devmgr_buffer_free_func_add(mbuf, _e_video_input_buffer_cb_free, video);
+
+   VDT("Client(%s):PID(%d) RscID(%d), Buffer(%p) created, refcnt:%d"
+       " scanout=%d", e_client_util_name_get(video->ec) ?: "No Name" ,
+       video->ec->netwm.pid, wl_resource_get_id(video->surface), mbuf,
+       mbuf->ref_cnt, scanout);
 
    return mbuf;
 }
@@ -850,6 +861,17 @@ _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb)
          }
      }
 
+   VDT("Client(%s):PID(%d) RscID(%d), Buffer(%p, refcnt:%d) is shown."
+       "Geometry details are : buffer size(%dx%d) src(%d,%d, %dx%d)"
+       " dst(%d,%d, %dx%d), transform(%d), punched(%d)",
+       e_client_util_name_get(video->ec) ?: "No Name" , video->ec->netwm.pid,
+       wl_resource_get_id(video->surface), vfb->mbuf, vfb->mbuf->ref_cnt,
+       info.src_config.size.h, info.src_config.size.v, info.src_config.pos.x,
+       info.src_config.pos.y, info.src_config.pos.w, info.src_config.pos.h,
+       info.dst_pos.x, info.dst_pos.y, info.dst_pos.w, info.dst_pos.h, info.transform,
+       video->punched);
+
+
    return EINA_TRUE;
 show_fail:
    tdm_layer_unset_buffer(video->layer);
@@ -872,7 +894,10 @@ _e_video_buffer_show(E_Video *video, E_Devmgr_Buf *mbuf, Eina_Rectangle *visible
 
    /* There are waiting fbs more than 2 */
    if (eina_list_nth(video->waiting_list, 1))
-     return;
+     {
+        VDT("There are waiting fbs more than 2");
+        return;
+     }
 
    if (e_devicemgr_dpms_get(video->drm_output))
      goto no_commit;
@@ -1421,6 +1446,18 @@ _e_devicemgr_video_object_destroy(struct wl_resource *resource)
 {
    E_Video *video = wl_resource_get_user_data(resource);
 
+   VDT("Video from Client(%s):PID(%d) is being destroyed, details are: "
+       "RscID(%d), Buffer(%p), Video_Format(%c%c%c%c), "
+       "Buffer_Size(%dx%d), Src Rect(%d,%d, %dx%d), Dest Rect(%d,%d, %dx%d),"
+       " Transformed(%d), Punched(%d)",
+       e_client_util_name_get(video->ec) ?: "No Name" , video->ec->netwm.pid,
+       wl_resource_get_id(video->surface),
+       video->current_fb?video->current_fb->mbuf:0, FOURCC_STR(video->tbmfmt),
+       video->geo.input_w, video->geo.input_h, video->geo.input_r.x ,
+       video->geo.input_r.y, video->geo.input_r.w, video->geo.input_r.h,
+       video->geo.output_r.x ,video->geo.output_r.y, video->geo.output_r.w,
+       video->geo.output_r.h, video->geo.transform, video->punched);
+
    _e_video_destroy(video);
 }
 
@@ -1444,6 +1481,13 @@ _e_devicemgr_video_object_cb_set_attribute(struct wl_client *client,
    EINA_SAFETY_ON_NULL_RETURN(video);
 
    tdm_layer_get_available_properties(video->layer, &props, &count);
+
+   if(!strncmp(name, "mute", TDM_NAME_LEN) && video->ec)
+      VDT("Client(%s):PID(%d) RscID(%d) Attribute:%s, Value:%d",
+          e_client_util_name_get(video->ec) ?: "No Name",
+          video->ec->netwm.pid, wl_resource_get_id(video->surface),
+          name,value);
+
    for (i = 0; i < count; i++)
      {
         if (!strncmp(name, props[i].name, TDM_NAME_LEN))
@@ -1593,6 +1637,15 @@ e_devicemgr_video_init(void)
    if (!e_comp_wl) return 0;
    if (!e_comp_wl->wl.disp) return 0;
 
+
+   _video_detail_log_dom = eina_log_domain_register("e-devicemgr-video", EINA_COLOR_BLUE);
+   if (_video_detail_log_dom < 0)
+     {
+        ERR("Failed eina_log_domain_register()..!\n");
+        return 0;
+     }
+
+
    /* try to add tizen_screenshooter to wayland globals */
    if (!wl_global_create(e_comp_wl->wl.disp, &tizen_video_interface, 1,
                          NULL, _e_devicemgr_video_cb_bind))
@@ -1617,6 +1670,9 @@ void
 e_devicemgr_video_fini(void)
 {
    E_FREE_LIST(video_hdlrs, ecore_event_handler_del);
+
+   eina_log_domain_unregister(_video_detail_log_dom);
+   _video_detail_log_dom = -1;
 }
 
 Eina_List*
