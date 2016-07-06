@@ -152,9 +152,12 @@ _e_devicemgr_del_device(const char *name, const char *identifier, const char *se
    EINA_LIST_FREE(dev->resources, res)
      {
         device_user_data = wl_resource_get_user_data(res);
-        device_user_data->dev = NULL;
-        device_user_data->dev_mgr_res = NULL;
-        E_FREE(device_user_data);
+        if (device_user_data)
+          {
+             device_user_data->dev = NULL;
+             device_user_data->dev_mgr_res = NULL;
+             E_FREE(device_user_data);
+          }
 
         wl_resource_set_user_data(res, NULL);
      }
@@ -541,6 +544,9 @@ _e_input_devmgr_client_cb_destroy(struct wl_listener *l, void *data)
 
    if (!input_devmgr_data->block_client) return;
 
+   wl_list_remove(&l->link);
+   E_FREE(l);
+
    _e_input_devmgr_request_client_remove(client);
 }
 
@@ -707,6 +713,7 @@ _e_input_devmgr_inputgen_client_cb_destroy(struct wl_listener *l, void *data)
         _e_input_devmgr_inputgen_generator_remove();
      }
 
+   wl_list_remove(&l->link);
    E_FREE(l);
 
    input_devmgr_data->inputgen.clients =
