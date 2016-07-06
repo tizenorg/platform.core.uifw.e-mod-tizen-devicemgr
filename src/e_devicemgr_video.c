@@ -1445,6 +1445,7 @@ static void
 _e_devicemgr_video_object_destroy(struct wl_resource *resource)
 {
    E_Video *video = wl_resource_get_user_data(resource);
+   EINA_SAFETY_ON_NULL_RETURN(video);
 
    VDT("Video from Client(%s):PID(%d) is being destroyed, details are: "
        "RscID(%d), Buffer(%p), Video_Format(%c%c%c%c), "
