@@ -52,6 +52,7 @@ struct _e_devicemgr_input_devmgr_data
    unsigned int block_devtype;
    struct wl_client *block_client;
    Ecore_Timer *duration_timer;
+   Eina_List *pressed_keys;
 #ifdef ENABLE_CYNARA
    cynara *p_cynara;
    Eina_Bool cynara_initialized;

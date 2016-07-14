@@ -431,13 +431,45 @@ Eina_Bool
 e_devicemgr_block_check_keyboard(int type, void *event)
 {
    Ecore_Event_Key *ev;
+   Eina_List *l, *l_next;
+   int *keycode, *data;
 
    ev = event;
    EINA_SAFETY_ON_NULL_RETURN_VAL(ev, ECORE_CALLBACK_PASS_ON);
 
    if (input_devmgr_data->block_devtype & TIZEN_INPUT_DEVICE_MANAGER_CLAS_KEYBOARD)
      {
+        if (type == ECORE_EVENT_KEY_UP)
+          {
+             EINA_LIST_FOREACH_SAFE(input_devmgr_data->pressed_keys, l, l_next, data)
+               {
+                  DMERR("%d is already press key. Propagate this key event.\n", *data);
+                  input_devmgr_data->pressed_keys = eina_list_remove_list(input_devmgr_data->pressed_keys, l);
+                  E_FREE(data);
+                  return ECORE_CALLBACK_PASS_ON;
+               }
+          }
         return ECORE_CALLBACK_DONE;
+     }
+
+   if (type == ECORE_EVENT_KEY_DOWN)
+     {
+        keycode = E_NEW(int, 1);
+        *keycode = ev->keycode;
+
+        EINA_LIST_FOREACH(input_devmgr_data->pressed_keys, l, data)
+          {
+             if (*data == *keycode) break;
+          }
+        input_devmgr_data->pressed_keys = eina_list_append(input_devmgr_data->pressed_keys, keycode);
+     }
+   else
+     {
+        EINA_LIST_FOREACH_SAFE(input_devmgr_data->pressed_keys, l, l_next, data)
+          {
+             input_devmgr_data->pressed_keys = eina_list_remove_list(input_devmgr_data->pressed_keys, l);
+             E_FREE(data);
+          }
      }
 
    return ECORE_CALLBACK_PASS_ON;
@@ -1330,6 +1362,8 @@ e_devicemgr_device_fini(void)
         input_devmgr_data->inputgen.clients =
            eina_list_remove(input_devmgr_data->inputgen.clients, client);
      }
+
+   E_FREE_LIST(input_devmgr_data->pressed_keys, free);
 
    eina_stringshare_del(input_devmgr_data->detent.identifier);
    eina_stringshare_del(input_devmgr_data->inputgen.uinp_identifier);
