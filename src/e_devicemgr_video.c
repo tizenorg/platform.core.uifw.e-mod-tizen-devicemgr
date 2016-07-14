@@ -1692,7 +1692,15 @@ e_devicemgr_video_get(struct wl_resource *surface_resource)
 E_Devmgr_Buf*
 e_devicemgr_video_fb_get(E_Video *video)
 {
+   tdm_layer_capability capabilities = 0;
+
    EINA_SAFETY_ON_NULL_RETURN_VAL(video, NULL);
+
+   if (tdm_layer_get_capabilities(video->layer, &capabilities) != TDM_ERROR_NONE)
+      return NULL;
+
+   if (capabilities & TDM_LAYER_CAPABILITY_VIDEO)
+      return NULL;
 
    return (video->current_fb) ? video->current_fb->mbuf : NULL;
 }

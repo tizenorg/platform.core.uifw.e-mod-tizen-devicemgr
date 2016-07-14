@@ -398,6 +398,8 @@ _e_tz_screenmirror_dump_still(E_Mirror_Buffer *buffer)
    dst = buffer->mbuf;
    EINA_SAFETY_ON_NULL_RETURN(dst);
 
+   e_devmgr_buffer_clear(dst);
+
    /* get ui buffer */
    ui = _e_tz_screenmirror_ui_buffer_get(mirror);
    EINA_SAFETY_ON_NULL_RETURN(ui);
