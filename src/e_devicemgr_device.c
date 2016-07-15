@@ -1013,7 +1013,7 @@ _e_input_devmgr_generate_touch_event(uint32_t type, uint32_t x, uint32_t y, uint
    e->root.x = e->x;
    e->root.y = e->y;
 
-   e->multi.device = finger - 1;
+   e->multi.device = finger;
    e->multi.radius = 1;
    e->multi.radius_x = 1;
    e->multi.radius_y = 1;
@@ -1064,7 +1064,7 @@ _e_input_devmgr_generate_touch_update_event(uint32_t x, uint32_t y, uint32_t fin
    e->root.x = e->x;
    e->root.y = e->y;
 
-   e->multi.device = finger - 1;
+   e->multi.device = finger;
    e->multi.radius = 1;
    e->multi.radius_x = 1;
    e->multi.radius_y = 1;
