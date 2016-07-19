@@ -1250,6 +1250,10 @@ _e_video_render(E_Video *video)
         EINA_SAFETY_ON_NULL_GOTO(input_buffer, render_fail);
 
         _e_video_buffer_show(video, input_buffer, &video->geo.input_r, video->geo.transform);
+
+        video->old_geo = video->geo;
+        video->old_comp_buffer = comp_buffer;
+
 #ifdef DUMP_BUFFER
         static int i;
         e_devmgr_buffer_dump(input_buffer, "render", i++, 0);
