@@ -432,6 +432,8 @@ _e_video_geometry_cal_viewport(E_Video *video)
    E_Comp_Wl_Buffer *comp_buffer;
    tbm_surface_h tbm_surf;
    uint32_t size = 0, offset = 0, pitch = 0;
+   int bw, bh;
+   int width_from_buffer, height_from_buffer;
 
    EINA_SAFETY_ON_NULL_RETURN_VAL(ec, EINA_FALSE);
 
@@ -451,12 +453,31 @@ _e_video_geometry_cal_viewport(E_Video *video)
 
    video->geo.input_h = tbm_surface_get_height(tbm_surf);
 
+   bw = tbm_surface_get_width(tbm_surf);
+   bh = tbm_surface_get_height(tbm_surf);
+
+   switch (vp->buffer.transform)
+     {
+      case WL_OUTPUT_TRANSFORM_90:
+      case WL_OUTPUT_TRANSFORM_270:
+      case WL_OUTPUT_TRANSFORM_FLIPPED_90:
+      case WL_OUTPUT_TRANSFORM_FLIPPED_270:
+        width_from_buffer = bh / vp->buffer.scale;
+        height_from_buffer = bw / vp->buffer.scale;
+        break;
+      default:
+        width_from_buffer = bw / vp->buffer.scale;
+        height_from_buffer = bh / vp->buffer.scale;
+        break;
+     }
+
+
    if (vp->buffer.src_width == wl_fixed_from_int(-1))
      {
         x1 = 0.0;
         y1 = 0.0;
-        x2 = ec->comp_data->width_from_buffer;
-        y2 = ec->comp_data->height_from_buffer;
+        x2 = width_from_buffer;
+        y2 = height_from_buffer;
      }
    else
      {
@@ -468,13 +489,13 @@ _e_video_geometry_cal_viewport(E_Video *video)
 
    VDB("transform(%d) scale(%d) buffer(%dx%d) src(%d,%d %d,%d) viewport(%dx%d)",
        vp->buffer.transform, vp->buffer.scale,
-       ec->comp_data->width_from_buffer, ec->comp_data->height_from_buffer,
+       width_from_buffer, height_from_buffer,
        x1, y1, x2 - x1, y2 - y1,
        ec->comp_data->width_from_viewport, ec->comp_data->height_from_viewport);
 
-   buffer_transform(ec->comp_data->width_from_buffer, ec->comp_data->height_from_buffer,
+   buffer_transform(width_from_buffer, height_from_buffer,
                     vp->buffer.transform, vp->buffer.scale, x1, y1, &tx1, &ty1);
-   buffer_transform(ec->comp_data->width_from_buffer, ec->comp_data->height_from_buffer,
+   buffer_transform(width_from_buffer, height_from_buffer,
                     vp->buffer.transform, vp->buffer.scale, x2, y2, &tx2, &ty2);
 
    video->geo.input_r.x = (tx1 <= tx2) ? tx1 : tx2;
