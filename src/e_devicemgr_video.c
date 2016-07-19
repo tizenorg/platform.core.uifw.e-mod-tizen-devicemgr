@@ -19,6 +19,13 @@ static int _video_detail_log_dom = -1;
 #define DET(...)          EINA_LOG_DOM_DBG(_video_detail_log_dom, __VA_ARGS__)
 #define VDT(fmt,arg...)   DET("window(0x%08"PRIxPTR"): "fmt, video->window, ##arg)
 
+#define GEO_FMT   "%d,%d (%d,%d %dx%d) ~ (%d,%d %dx%d) tran(%d)"
+#define GEO_ARG(g) \
+   (g)->input_w, (g)->input_h, \
+   (g)->input_r.x, (g)->input_r.y, (g)->input_r.w, (g)->input_r.h, \
+   (g)->output_r.x, (g)->output_r.y, (g)->output_r.w, (g)->output_r.h, \
+   (g)->transform
+
 typedef struct _E_Video_Fb
 {
    E_Devmgr_Buf *mbuf;
@@ -72,13 +79,15 @@ struct _E_Video
    E_Video_Fb *current_fb;
 
    Eina_Bool  need_punch;
+   Eina_Bool  cb_registered;
+   Eina_Rectangle eo_geo;
 };
 
 static Eina_List *video_list;
 
 static void _e_video_set(E_Video *video, E_Client *ec);
 static void _e_video_destroy(E_Video *video);
-static void _e_video_render(E_Video *video);
+static void _e_video_render(E_Video *video, const char *func);
 static Eina_Bool _e_video_frame_buffer_show(E_Video *video, E_Video_Fb *vfb);
 static void _e_video_frame_buffer_destroy(E_Video_Fb *vfb);
 static void _e_video_buffer_show(E_Video *video, E_Devmgr_Buf *mbuf, Eina_Rectangle *visible, unsigned int transform);
@@ -913,19 +922,35 @@ no_commit:
 }
 
 static void
-_e_video_cb_evas_resize(void *data, Evas *e EINA_UNUSED, Evas_Object *obj EINA_UNUSED, void *event_info EINA_UNUSED)
+_e_video_cb_evas_resize(void *data, Evas *e EINA_UNUSED, Evas_Object *obj, void *event_info EINA_UNUSED)
 {
    E_Video *video = data;
+   Evas_Coord w = 0, h = 0;
 
-   _e_video_render(video);
+   evas_object_geometry_get(obj, NULL, NULL, &w, &h);
+   if (video->eo_geo.w == w && video->eo_geo.h == h)
+     return;
+
+   video->eo_geo.w = w;
+   video->eo_geo.h = h;
+
+   _e_video_render(video, __FUNCTION__);
 }
 
 static void
 _e_video_cb_evas_move(void *data, Evas *e EINA_UNUSED, Evas_Object *obj EINA_UNUSED, void *event_info EINA_UNUSED)
 {
    E_Video *video = data;
+   Evas_Coord x = 0, y = 0;
 
-   _e_video_render(video);
+   evas_object_geometry_get(obj, &x, &y, NULL, NULL);
+   if (video->eo_geo.x == x && video->eo_geo.y == y)
+     return;
+
+   video->eo_geo.x = x;
+   video->eo_geo.y = y;
+
+   _e_video_render(video, __FUNCTION__);
 }
 
 static E_Video*
@@ -984,11 +1009,6 @@ _e_video_set(E_Video *video, E_Client *ec)
 
    video->ec = ec;
    video->window = e_client_util_win_get(ec);
-
-   evas_object_event_callback_add(ec->frame, EVAS_CALLBACK_RESIZE,
-                                  _e_video_cb_evas_resize, video);
-   evas_object_event_callback_add(ec->frame, EVAS_CALLBACK_MOVE,
-                                  _e_video_cb_evas_move, video);
 
    video->drm_output = _e_video_drm_output_find(video->ec);
    EINA_SAFETY_ON_NULL_RETURN(video->drm_output);
@@ -1070,10 +1090,13 @@ _e_video_destroy(E_Video *video)
    if (!video)
       return;
 
-   evas_object_event_callback_del_full(video->ec->frame, EVAS_CALLBACK_RESIZE,
-                                       _e_video_cb_evas_resize, video);
-   evas_object_event_callback_del_full(video->ec->frame, EVAS_CALLBACK_MOVE,
-                                       _e_video_cb_evas_move, video);
+   if (video->cb_registered)
+     {
+        evas_object_event_callback_del_full(video->ec->frame, EVAS_CALLBACK_RESIZE,
+                                            _e_video_cb_evas_resize, video);
+        evas_object_event_callback_del_full(video->ec->frame, EVAS_CALLBACK_MOVE,
+                                            _e_video_cb_evas_move, video);
+     }
 
    wl_resource_set_destructor(video->video_object, NULL);
 
@@ -1208,7 +1231,7 @@ _e_video_pp_buffer_cb_release(tbm_surface_h surface, void *user_data)
 }
 
 static void
-_e_video_render(E_Video *video)
+_e_video_render(E_Video *video, const char *func)
 {
    E_Comp_Wl_Buffer *comp_buffer;
    E_Devmgr_Buf *pp_buffer = NULL;
@@ -1216,30 +1239,33 @@ _e_video_render(E_Video *video)
 
    EINA_SAFETY_ON_NULL_RETURN(video->ec);
 
-   DBG("======================================");
-
    /* buffer can be NULL when camera/video's mode changed. Do nothing and
     * keep previous frame in this case.
     */
    if (!video->ec->pixmap)
-     goto done;
+     return;
 
    comp_buffer = e_pixmap_resource_get(video->ec->pixmap);
    if (!comp_buffer)
-     goto done;
+     return;
 
    _e_video_format_info_get(video);
 
    /* not interested with other buffer type */
    if (!wayland_tbm_server_get_surface(NULL, comp_buffer->resource))
-     goto done;
+     return;
 
    if (!_e_video_geometry_cal(video))
-     goto done;
+     return;
 
    if (!memcmp(&video->old_geo, &video->geo, sizeof video->geo) &&
        video->old_comp_buffer == comp_buffer)
-     goto done;
+     return;
+
+   DBG("====================================== %s", func);
+   VDB("old["GEO_FMT" buf(%p)] new["GEO_FMT" buf(%p)]",
+       GEO_ARG(&video->old_geo), video->old_comp_buffer,
+       GEO_ARG(&video->geo), comp_buffer);
 
    _e_video_input_buffer_valid(video, comp_buffer);
 
@@ -1339,6 +1365,14 @@ render_fail:
         /* don't unref pp_buffer here because we will unref it when video destroyed */
      }
 done:
+   if (!video->cb_registered)
+     {
+        evas_object_event_callback_add(video->ec->frame, EVAS_CALLBACK_RESIZE,
+                                       _e_video_cb_evas_resize, video);
+        evas_object_event_callback_add(video->ec->frame, EVAS_CALLBACK_MOVE,
+                                       _e_video_cb_evas_move, video);
+        video->cb_registered = EINA_TRUE;
+     }
    DBG("======================================.");
 }
 
@@ -1375,7 +1409,7 @@ _e_video_cb_ec_buffer_change(void *data, int type, void *event)
    video = find_video_with_surface(ec->comp_data->surface);
    if (!video) return ECORE_CALLBACK_PASS_ON;
 
-   _e_video_render(video);
+   _e_video_render(video, __FUNCTION__);
 
    return ECORE_CALLBACK_PASS_ON;
 }
