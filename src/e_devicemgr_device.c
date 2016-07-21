@@ -443,10 +443,13 @@ e_devicemgr_block_check_keyboard(int type, void *event)
           {
              EINA_LIST_FOREACH_SAFE(input_devmgr_data->pressed_keys, l, l_next, data)
                {
-                  DMERR("%d is already press key. Propagate this key event.\n", *data);
-                  input_devmgr_data->pressed_keys = eina_list_remove_list(input_devmgr_data->pressed_keys, l);
-                  E_FREE(data);
-                  return ECORE_CALLBACK_PASS_ON;
+                  if (ev->keycode == *data)
+                    {
+                       DMERR("%d is already press key. Propagate this key event.\n", *data);
+                       input_devmgr_data->pressed_keys = eina_list_remove_list(input_devmgr_data->pressed_keys, l);
+                       E_FREE(data);
+                       return ECORE_CALLBACK_PASS_ON;
+                    }
                }
           }
         return ECORE_CALLBACK_DONE;
@@ -455,11 +458,13 @@ e_devicemgr_block_check_keyboard(int type, void *event)
    if (type == ECORE_EVENT_KEY_DOWN)
      {
         keycode = E_NEW(int, 1);
+        EINA_SAFETY_ON_NULL_RETURN_VAL(keycode, ECORE_CALLBACK_PASS_ON);
+
         *keycode = ev->keycode;
 
         EINA_LIST_FOREACH(input_devmgr_data->pressed_keys, l, data)
           {
-             if (*data == *keycode) break;
+             if (*data == *keycode) return ECORE_CALLBACK_PASS_ON;
           }
         input_devmgr_data->pressed_keys = eina_list_append(input_devmgr_data->pressed_keys, keycode);
      }
@@ -467,8 +472,11 @@ e_devicemgr_block_check_keyboard(int type, void *event)
      {
         EINA_LIST_FOREACH_SAFE(input_devmgr_data->pressed_keys, l, l_next, data)
           {
-             input_devmgr_data->pressed_keys = eina_list_remove_list(input_devmgr_data->pressed_keys, l);
-             E_FREE(data);
+             if (ev->keycode == *data)
+               {
+                  input_devmgr_data->pressed_keys = eina_list_remove_list(input_devmgr_data->pressed_keys, l);
+                  E_FREE(data);
+               }
           }
      }
 
