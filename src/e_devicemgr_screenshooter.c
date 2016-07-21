@@ -41,6 +41,7 @@ typedef struct _E_Mirror
    /* converter info */
    tdm_pp *pp;
    Eina_List *ui_buffer_list;
+   Eina_List *buffer_clear_check;
 
    struct wl_listener client_destroy_listener;
 } E_Mirror;
@@ -104,6 +105,9 @@ _e_tz_screenmirror_center_rect (int src_w, int src_h, int dst_w, int dst_h, Eina
         fit->x = 0;
         fit->y = 0;
      }
+
+   if (fit->x % 2)
+     fit->x = fit->x - 1;
 }
 
 void
@@ -238,7 +242,7 @@ _e_tz_screenmirror_pp_create(E_Mirror *mirror, E_Devmgr_Buf *src, E_Devmgr_Buf *
    EINA_SAFETY_ON_NULL_RETURN_VAL(mirror->pp, EINA_FALSE);
 
    CLEAR(info);
-   info.src_config.size.h = src->width;
+   info.src_config.size.h = src->width_from_pitch;
    info.src_config.size.v = src->height;
    info.src_config.pos.w = src->width;
    info.src_config.pos.h = src->height;
@@ -336,6 +340,30 @@ _e_tz_screenmirror_buffer_release_cb(tbm_surface_h surface, void *user_data)
 #endif
 }
 
+static void
+_e_tz_screenmirror_drm_buffer_clear_check(E_Mirror_Buffer *buffer)
+{
+   E_Mirror *mirror = buffer->mirror;
+   E_Devmgr_Buf *mbuf, *dst;
+   Eina_List *l;
+   uint32_t buf_id;
+
+   dst = buffer->mbuf;
+   buf_id = wl_resource_get_id(dst->resource);
+
+   EINA_LIST_FOREACH(mirror->buffer_clear_check, l, mbuf)
+     {
+        uint32_t id;
+
+        id = wl_resource_get_id(mbuf->resource);
+        if (id == buf_id)
+          return;
+     }
+
+   e_devmgr_buffer_clear(dst);
+   mirror->buffer_clear_check = eina_list_append(mirror->buffer_clear_check, dst);
+}
+
 static Eina_Bool
 _e_tz_screenmirror_drm_dump(E_Mirror_Buffer *buffer)
 {
@@ -368,6 +396,8 @@ _e_tz_screenmirror_drm_dump(E_Mirror_Buffer *buffer)
    if (!mirror->pp)
      if (!_e_tz_screenmirror_pp_create(mirror, ui, dst))
        return EINA_FALSE;
+
+   _e_tz_screenmirror_drm_buffer_clear_check(buffer);
 
    if (tdm_pp_attach(mirror->pp, ui->tbm_surface, dst->tbm_surface))
      return EINA_FALSE;
@@ -478,6 +508,7 @@ static void
 _e_tz_screenmirror_buffer_cb_destroy(struct wl_listener *listener, void *data)
 {
    E_Mirror_Buffer *buffer = container_of(listener, E_Mirror_Buffer, destroy_listener);
+   E_Mirror *mirror = buffer->mirror;
 
    if (buffer->in_use)
      NEVER_GET_HERE();
@@ -490,6 +521,7 @@ _e_tz_screenmirror_buffer_cb_destroy(struct wl_listener *listener, void *data)
    if (buffer->mbuf)
      e_devmgr_buffer_unref(buffer->mbuf);
 
+   mirror->buffer_clear_check = eina_list_remove(mirror->buffer_clear_check, buffer->mbuf);
    E_FREE(buffer);
 }
 
@@ -680,6 +712,8 @@ _e_tz_screenmirror_destroy(E_Mirror *mirror)
    wl_resource_set_destructor(mirror->resource, NULL);
 
    _e_tz_screenmirror_pp_destroy(mirror);
+
+   EINA_LIST_FREE(mirror->buffer_clear_check, mbuf);
 
    EINA_LIST_FOREACH_SAFE(mirror->buffer_queue, l, ll, buffer)
      _e_tz_screenmirror_buffer_dequeue(buffer);
