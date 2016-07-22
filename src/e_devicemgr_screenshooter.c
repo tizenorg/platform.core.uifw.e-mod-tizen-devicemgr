@@ -69,6 +69,8 @@ static uint mirror_format_table[] =
 
 #define NUM_MIRROR_FORMAT   (sizeof(mirror_format_table) / sizeof(mirror_format_table[0]))
 
+static E_Mirror *keep_mirror;
+
 static void _e_tz_screenmirror_destroy(E_Mirror *mirror);
 static void _e_tz_screenmirror_buffer_dequeue(E_Mirror_Buffer *buffer);
 static void _e_tz_screenmirror_vblank_handler(void *data);
@@ -566,6 +568,8 @@ _e_tz_screenmirror_vblank_handler(void *data)
    Eina_List *l;
 
    EINA_SAFETY_ON_NULL_RETURN(mirror);
+   if (mirror != keep_mirror)
+     return;
 
    mirror->wait_vblank = EINA_FALSE;
 
@@ -620,8 +624,12 @@ _e_tz_screenmirror_create(struct wl_client *client, struct wl_resource *shooter_
    int count, i;
    unsigned int crtc_id;
 
+   EINA_SAFETY_ON_FALSE_RETURN_VAL(keep_mirror == NULL, NULL);
+
    mirror = E_NEW(E_Mirror, 1);
    EINA_SAFETY_ON_NULL_RETURN_VAL(mirror, NULL);
+
+   keep_mirror = mirror;
 
    mirror->stretch = TIZEN_SCREENMIRROR_STRETCH_KEEP_RATIO;
    mirror->shooter = shooter_resource;
@@ -687,6 +695,8 @@ fail_create:
       tdm_display_deinit(mirror->tdm_dpy);
 
    E_FREE(mirror);
+   keep_mirror = NULL;
+
    return NULL;
 }
 
@@ -726,6 +736,7 @@ _e_tz_screenmirror_destroy(E_Mirror *mirror)
 
    free(mirror);
 
+   keep_mirror = NULL;
 #if 0
    if (e_devmgr_buffer_list_length() > 0)
      e_devmgr_buffer_list_print();
